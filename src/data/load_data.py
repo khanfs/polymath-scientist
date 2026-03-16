@@ -123,38 +123,43 @@ class ScientificDataLoader:
         return bool(categories_set.intersection(relevant_categories))
 
     def load_lay_summaries(self) -> Tuple[List[str], List[str]]:
-        """Load and clean eLife and PLoS lay summaries."""
+        """Load and clean biomedical abstracts from PubMed.
+
+        Replaces tomasg25/scientific_lay_summarisation, which relied on a
+        HuggingFace loading script no longer supported in datasets >= 3.0.
+        ccdv/pubmed-summarization is a standard Parquet dataset requiring no
+        loading script.  Abstracts are used as the biology-domain text source.
+        """
         texts: List[str] = []
         sources: List[str] = []
+        samples_loaded = 0
 
-        for config_name in ["elife", "plos"]:
-            samples_loaded = 0
-            self.logger.info("Loading lay summaries from %s", config_name)
+        self.logger.info("Loading PubMed abstracts (ccdv/pubmed-summarization)")
 
-            dataset = load_dataset(
-                "tomasg25/scientific_lay_summarisation",
-                config_name,
-                split="train",
-                streaming=True,
-                trust_remote_code=True,
-            )
+        dataset = load_dataset(
+            "ccdv/pubmed-summarization",
+            "document",
+            split="train",
+            streaming=True,
+        )
 
-            for batch in self._batch_generator(dataset):
-                for sample in batch:
-                    article = self.cleaner.clean_scientific_text(
-                        sample.get("article", ""),
-                        source_type="lay_summary",
-                    )
-                    if article:
-                        texts.append(article)
-                        sources.append(f"lay_summary_{config_name}")
-                        samples_loaded += 1
+        for batch in self._batch_generator(dataset):
+            for sample in batch:
+                text = sample.get("abstract", "") or sample.get("article", "")
+                cleaned = self.cleaner.clean_scientific_text(
+                    text,
+                    source_type="lay_summary",
+                )
+                if cleaned:
+                    texts.append(cleaned)
+                    sources.append("pubmed")
+                    samples_loaded += 1
 
-                        if self.config.sample_mode and samples_loaded >= self.config.samples_per_source:
-                            break
+                    if self.config.sample_mode and samples_loaded >= self.config.samples_per_source:
+                        break
 
-                if self.config.sample_mode and samples_loaded >= self.config.samples_per_source:
-                    break
+            if self.config.sample_mode and samples_loaded >= self.config.samples_per_source:
+                break
 
         return texts, sources
 
@@ -171,7 +176,6 @@ class ScientificDataLoader:
             "20220301.en",
             split="train",
             streaming=True,
-            trust_remote_code=True,
         )
 
         for batch in self._batch_generator(dataset):
@@ -212,7 +216,6 @@ class ScientificDataLoader:
             "sciq",
             split="train",
             streaming=True,
-            trust_remote_code=True,
         )
 
         for batch in self._batch_generator(dataset):
