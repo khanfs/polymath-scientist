@@ -28,6 +28,8 @@ from src.helpers.shuffling_analysis import AnalysisConfig, ScientificDatasetAnal
 from src.helpers.topic_balancing import ScientificTopicBalancer, TopicBalancingConfig
 
 
+LOGGER = logging.getLogger(__name__)
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -246,10 +248,25 @@ class CrossValidator:
 
         valid_labels = [composite_labels[i] for i in valid_indices]
 
+        # Stratified splitting requires test_size >= n_classes.
+        # With small datasets (e.g. sample mode) this can fail, so fall back
+        # to simple random splitting when stratification is not feasible.
+        n_classes = len(set(valid_labels))
+        n_test = max(1, int(len(valid_indices) * test_size))
+        use_stratify = n_test >= n_classes
+
+        if not use_stratify:
+            LOGGER.warning(
+                "Stratified split not feasible: test_size=%d < n_classes=%d. "
+                "Falling back to random split.",
+                n_test,
+                n_classes,
+            )
+
         train_idx_rel, test_idx_rel = train_test_split(
             range(len(valid_indices)),
             test_size=test_size,
-            stratify=valid_labels,
+            stratify=valid_labels if use_stratify else None,
             random_state=self.config.random_state,
         )
 
