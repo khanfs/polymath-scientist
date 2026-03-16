@@ -1,0 +1,235 @@
+"""
+Evaluation utilities for the fine-tuned or distilled Polymath student model.
+
+This module provides:
+- loading a saved causal language model checkpoint
+- running structured prompt-based evaluation
+- saving generated outputs and metadata to JSON
+
+It is designed to be imported from scripts rather than executed directly.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def get_best_device() -> str:
+    """Return the best available torch device."""
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        return "mps"
+    return "cpu"
+
+
+@dataclass
+class GenerationConfig:
+    """Configuration for text generation during evaluation."""
+
+    max_new_tokens: int = 150
+    temperature: float = 0.7
+    top_p: float = 0.9
+    top_k: int = 50
+    do_sample: bool = True
+    repetition_penalty: float = 1.1
+
+
+@dataclass
+class EvaluationConfig:
+    """Configuration for model evaluation."""
+
+    base_path: Path = PROJECT_ROOT
+    model_dir: str = "fine_tuned_model"
+    output_dir: str = "logs/evaluation"
+    log_dir: str = "logs"
+    device: str = get_best_device()
+
+    generation: GenerationConfig = field(default_factory=GenerationConfig)
+
+    prompt_sets: Dict[str, List[str]] = field(
+        default_factory=lambda: {
+            "biology": [
+                "Explain how transcription factors regulate gene expression.",
+                "Describe how cell signalling pathways can influence phenotype.",
+            ],
+            "chemistry": [
+                "Explain how molecular structure influences solubility.",
+                "Describe the role of chemical bonding in determining material properties.",
+            ],
+            "physics": [
+                "Explain how entropy relates to phase transitions.",
+                "Describe how quantum mechanics differs from classical mechanics.",
+            ],
+            "cross_domain": [
+                "Explain how physical constraints can shape biological function.",
+                "Discuss how chemistry mediates the relationship between physics and biology.",
+                "Explain how quantum mechanisms could, in principle, affect gene regulation.",
+            ],
+        }
+    )
+
+
+class PolymathEvaluator:
+    """Reusable evaluator for prompt-based testing of the Polymath student model."""
+
+    def __init__(self, config: Optional[EvaluationConfig] = None) -> None:
+        self.config = config or EvaluationConfig()
+
+        self.model_path = self.config.base_path / self.config.model_dir
+        self.output_path = self.config.base_path / self.config.output_dir
+        self.log_path = self.config.base_path / self.config.log_dir
+
+        self.output_path.mkdir(parents=True, exist_ok=True)
+        self.log_path.mkdir(parents=True, exist_ok=True)
+
+        self.logger = self._setup_logger()
+        self.device = torch.device(self.config.device)
+
+        self.tokenizer = None
+        self.model = None
+
+    def _setup_logger(self) -> logging.Logger:
+        """Set up logger for evaluation."""
+        logger = logging.getLogger("polymath_evaluation")
+        logger.setLevel(logging.DEBUG)
+        logger.propagate = False
+
+        if logger.handlers:
+            return logger
+
+        file_handler = logging.FileHandler(self.log_path / "evaluation.log")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
+            )
+        )
+        logger.addHandler(file_handler)
+
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+        logger.addHandler(console_handler)
+
+        return logger
+
+    def load_model_and_tokenizer(self) -> None:
+        """Load model and tokenizer from the configured checkpoint directory."""
+        if not self.model_path.exists():
+            raise FileNotFoundError(f"Model directory not found: {self.model_path}")
+
+        self.logger.info("Loading model and tokenizer from %s", self.model_path)
+
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        self.model = AutoModelForCausalLM.from_pretrained(self.model_path)
+        self.model.config.pad_token_id = self.tokenizer.pad_token_id
+        self.model.config.eos_token_id = self.tokenizer.eos_token_id
+        self.model.to(self.device)
+        self.model.eval()
+
+        self.logger.info("Model loaded successfully on %s", self.device)
+
+    def generate_response(self, prompt: str) -> str:
+        """Generate a response for a single prompt."""
+        if self.model is None or self.tokenizer is None:
+            raise RuntimeError("Model and tokenizer must be loaded before generation.")
+
+        inputs = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            padding=True,
+        )
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+        generation_config = self.config.generation
+
+        with torch.no_grad():
+            outputs = self.model.generate(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                max_new_tokens=generation_config.max_new_tokens,
+                do_sample=generation_config.do_sample,
+                temperature=generation_config.temperature,
+                top_p=generation_config.top_p,
+                top_k=generation_config.top_k,
+                repetition_penalty=generation_config.repetition_penalty,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
+            )
+
+        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+    def evaluate_prompt_set(self, category: str, prompts: List[str]) -> List[Dict[str, Any]]:
+        """Run evaluation for a group of prompts."""
+        self.logger.info("Evaluating prompt set: %s (%s prompts)", category, len(prompts))
+
+        results: List[Dict[str, Any]] = []
+        for idx, prompt in enumerate(prompts, start=1):
+            self.logger.info("Running prompt %s/%s in category '%s'", idx, len(prompts), category)
+            response = self.generate_response(prompt)
+
+            results.append(
+                {
+                    "category": category,
+                    "prompt_index": idx,
+                    "prompt": prompt,
+                    "response": response,
+                }
+            )
+
+        return results
+
+    def run_evaluation(self) -> Dict[str, Any]:
+        """Run the full structured evaluation and return all results."""
+        self.load_model_and_tokenizer()
+
+        all_results: List[Dict[str, Any]] = []
+        for category, prompts in self.config.prompt_sets.items():
+            category_results = self.evaluate_prompt_set(category, prompts)
+            all_results.extend(category_results)
+
+        results_payload = {
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "model_path": str(self.model_path),
+            "device": str(self.device),
+            "generation_config": asdict(self.config.generation),
+            "prompt_sets": {k: len(v) for k, v in self.config.prompt_sets.items()},
+            "results": all_results,
+        }
+
+        return results_payload
+
+    def save_results(self, results: Dict[str, Any], filename: Optional[str] = None) -> Path:
+        """Save evaluation results to JSON."""
+        if filename is None:
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            filename = f"evaluation_results_{timestamp}.json"
+
+        output_file = self.output_path / filename
+
+        with output_file.open("w", encoding="utf-8") as handle:
+            json.dump(results, handle, indent=2, ensure_ascii=False)
+
+        self.logger.info("Saved evaluation results to %s", output_file)
+        return output_file
+
+    def evaluate_and_save(self, filename: Optional[str] = None) -> Path:
+        """Run evaluation and save results to disk."""
+        results = self.run_evaluation()
+        return self.save_results(results, filename=filename)

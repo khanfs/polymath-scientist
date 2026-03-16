@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Data and outputs
+data/raw/
+data/interim/
+data/processed/
+processed_data/
+results/
+outputs/
+temp/
+analysis/
+vocab_analysis/
+metadata/
+splits/
+splits_fixed/
+
+# Models and checkpoints
+models/
+fine_tuned_model/
+checkpoints/
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# Hugging Face / cache
+cache/
+
+# Large local source files
+arxiv-metadata-oai-snapshot.json
+multidisciplinary_dataset.json
+
+# Environment files
+.env
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
