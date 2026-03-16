@@ -213,7 +213,6 @@ class StudentModelTrainer:
 
         return TrainingArguments(
             output_dir=str(self.model_output_path),
-            overwrite_output_dir=True,
             num_train_epochs=self.config.epochs,
             per_device_train_batch_size=self.config.batch_size,
             per_device_eval_batch_size=self.config.batch_size,
