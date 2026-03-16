@@ -41,6 +41,24 @@
 
 The system trains a generative student model on multidisciplinary scientific text, then distils representational structure from biology, chemistry, and physics teacher models into a single cross-domain reasoning prototype.
 
+##Overview
+Polymath Scientist AI is a research prototype investigating whether large language models can acquire interdisciplinary scientific reasoning through multi-teacher knowledge distillation.
+Most AI systems are trained within narrow domains. However, scientific discovery increasingly requires integrating knowledge across disciplines.
+
+This project explores a training framework where domain-specialised models teach a shared student model capable of integrating knowledge across physics, chemistry and biology.
+
+The system combines:
+* multidisciplinary scientific datasets
+* student model fine-tuning
+* multi-teacher knowledge distillation
+
+The goal is to explore whether such systems can develop polymath-style scientific reasoning.
+
+
+
+
+
+
 # Polymath Scientist
 
 Polymath Scientist is an experimental scientific reasoning engine prototype that explores how a generative language model can integrate knowledge across multiple scientific domains. The system combines multidisciplinary training of a DistilGPT-2 student model with multi-teacher knowledge distillation from domain-specialized models (BioBERT, ChemBERTa, and SciBERT) to transfer structured expertise from biology, chemistry, and physics into a single generative model. 

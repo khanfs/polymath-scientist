@@ -18,6 +18,7 @@ logs/
 data/raw/
 data/interim/
 data/processed/
+data/splits/
 processed_data/
 results/
 outputs/
@@ -25,7 +26,6 @@ temp/
 analysis/
 vocab_analysis/
 metadata/
-splits/
 splits_fixed/
 
 # Models and checkpoints
