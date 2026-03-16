@@ -49,6 +49,7 @@ class MultidisciplinaryConfig:
     max_samples: int = 10000
     samples_per_source: int = 5000
     min_word_count: int = 50
+    min_samples_per_category: int = 100
     max_length: int = 512
 
     run_vocab_analysis: bool = True
@@ -82,7 +83,7 @@ class MultidisciplinaryDataPreparer:
         self.topic_balancer = ScientificTopicBalancer(
             TopicBalancingConfig(
                 max_samples_per_category=self.config.max_samples,
-                min_samples_per_category=100,
+                min_samples_per_category=self.config.min_samples_per_category,
             )
         )
 
@@ -179,6 +180,7 @@ class MultidisciplinaryDataPreparer:
             "max_samples": self.config.max_samples,
             "samples_per_source": self.config.samples_per_source,
             "min_word_count": self.config.min_word_count,
+            "min_samples_per_category": self.config.min_samples_per_category,
             "max_length": self.config.max_length,
         }
 

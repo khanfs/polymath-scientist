@@ -112,6 +112,10 @@ def stage_data(sample_mode: bool) -> None:
             samples_per_source=samples_per_source,
             min_word_count=50,
             max_length=512,
+            # In sample mode each topic has ~50 texts after filtering, so
+            # the default min_samples_per_category=100 drops everything.
+            # Use 10 for sample mode; keep 100 for full mode.
+            min_samples_per_category=10 if sample_mode else 100,
             run_vocab_analysis=True,
             run_dataset_analysis=True,
         ),

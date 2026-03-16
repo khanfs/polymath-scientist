@@ -232,10 +232,10 @@ class ScientificDataLoader:
                     sources.append("sciq")
                     samples_loaded += 1
 
-                    if self.config.sample_mode and samples_loaded >= self.config.max_samples:
+                    if self.config.sample_mode and samples_loaded >= self.config.samples_per_source:
                         break
 
-            if self.config.sample_mode and samples_loaded >= self.config.max_samples:
+            if self.config.sample_mode and samples_loaded >= self.config.samples_per_source:
                 break
 
         return texts, sources
