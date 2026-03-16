@@ -224,7 +224,7 @@ class StudentModelTrainer:
             logging_steps=self.config.logging_steps,
             save_strategy="steps",
             save_steps=self.config.save_steps,
-            evaluation_strategy="steps",
+            eval_strategy="steps",
             eval_steps=self.config.eval_steps,
             save_total_limit=2,
             load_best_model_at_end=True,
