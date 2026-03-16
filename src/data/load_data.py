@@ -164,7 +164,12 @@ class ScientificDataLoader:
         return texts, sources
 
     def load_wikipedia(self) -> Tuple[List[str], List[str]]:
-        """Load and clean Wikipedia science articles."""
+        """Load and clean Wikipedia science articles.
+
+        Uses wikimedia/wikipedia (20231101.en) which is a standard Parquet
+        dataset.  The legacy wikipedia/20220301.en relied on a loading script
+        no longer supported in datasets >= 3.0.
+        """
         texts: List[str] = []
         sources: List[str] = []
         samples_loaded = 0
@@ -172,8 +177,8 @@ class ScientificDataLoader:
         self.logger.info("Loading Wikipedia dataset")
 
         dataset = load_dataset(
-            "wikipedia",
-            "20220301.en",
+            "wikimedia/wikipedia",
+            "20231101.en",
             split="train",
             streaming=True,
         )
