@@ -220,7 +220,6 @@ class StudentModelTrainer:
             warmup_steps=self.config.warmup_steps,
             weight_decay=self.config.weight_decay,
             learning_rate=self.config.learning_rate,
-            logging_dir=str(self.log_path),
             logging_steps=self.config.logging_steps,
             save_strategy="steps",
             save_steps=self.config.save_steps,
@@ -257,7 +256,7 @@ class StudentModelTrainer:
         tokenized_val = self.tokenize_dataset(val_dataset, tokenizer, "validation")
 
         data_collator = DataCollatorForLanguageModeling(
-            tokenizer=tokenizer,
+            processing_class=tokenizer,
             mlm=False,
         )
 
@@ -268,7 +267,7 @@ class StudentModelTrainer:
             args=training_args,
             train_dataset=tokenized_train,
             eval_dataset=tokenized_val,
-            tokenizer=tokenizer,
+            processing_class=tokenizer,
             data_collator=data_collator,
         )
 
