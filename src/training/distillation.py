@@ -246,7 +246,8 @@ class PolymathDistillationTrainer:
                     "dmis-lab/biobert-base-cased-v1.1"
                 ).eval(),
                 "tokenizer": AutoTokenizer.from_pretrained(
-                    "dmis-lab/biobert-base-cased-v1.1"
+                    "dmis-lab/biobert-base-cased-v1.1",
+                    use_fast=False,
                 ),
             },
             "chem": {
@@ -254,7 +255,8 @@ class PolymathDistillationTrainer:
                     "seyonec/ChemBERTa-zinc-base-v1"
                 ).eval(),
                 "tokenizer": AutoTokenizer.from_pretrained(
-                    "seyonec/ChemBERTa-zinc-base-v1"
+                    "seyonec/ChemBERTa-zinc-base-v1",
+                    use_fast=False,
                 ),
             },
             "phys": {
@@ -262,7 +264,8 @@ class PolymathDistillationTrainer:
                     "allenai/scibert_scivocab_uncased"
                 ).eval(),
                 "tokenizer": AutoTokenizer.from_pretrained(
-                    "allenai/scibert_scivocab_uncased"
+                    "allenai/scibert_scivocab_uncased",
+                    use_fast=False,
                 ),
             },
         }
