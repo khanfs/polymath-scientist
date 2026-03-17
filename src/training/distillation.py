@@ -238,15 +238,15 @@ class PolymathDistillationTrainer:
 
         # All three teachers are BERT-based encoders.  We load them explicitly
         # as BertModel rather than using AutoModel because older checkpoints
-        # (e.g. dmis-lab/biobert-base-cased-v1.1) lack the model_type key in
+        # (e.g. dmis-lab/biobert-base-cased-v1.2) lack the model_type key in
         # config.json that AutoModel requires in transformers >= 4.40.
         teachers = {
             "bio": {
                 "model": BertModel.from_pretrained(
-                    "dmis-lab/biobert-base-cased-v1.1"
+                    "dmis-lab/biobert-base-cased-v1.2"
                 ).eval(),
                 "tokenizer": AutoTokenizer.from_pretrained(
-                    "dmis-lab/biobert-base-cased-v1.1",
+                    "dmis-lab/biobert-base-cased-v1.2",
                     use_fast=False,
                 ),
             },
