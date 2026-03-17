@@ -256,7 +256,7 @@ class StudentModelTrainer:
         tokenized_val = self.tokenize_dataset(val_dataset, tokenizer, "validation")
 
         data_collator = DataCollatorForLanguageModeling(
-            processing_class=tokenizer,
+            tokenizer=tokenizer,
             mlm=False,
         )
 
