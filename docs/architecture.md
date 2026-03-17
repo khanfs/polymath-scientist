@@ -13,8 +13,6 @@ The system combines:
 
 The central hypothesis is that **cross-domain knowledge transfer** can enable a student model to integrate scientific knowledge across physics, chemistry, and biology.
 
----
-
 ## Design Principles
 
 The system is built around the following principles:
@@ -50,8 +48,6 @@ The architecture is designed to scale to:
 - alternative distillation objectives  
 - more modular training strategies  
 
----
-
 ## System Components
 
 The system consists of four primary components:
@@ -60,8 +56,6 @@ The system consists of four primary components:
 2. Student Model Training  
 3. Teacher Models  
 4. Knowledge Distillation Framework  
-
----
 
 ## 1. Data Layer
 
@@ -89,8 +83,6 @@ The pipeline performs:
 
 The result is a **multidisciplinary scientific corpus** suitable for adapting a general-purpose language model to scientific text and cross-domain content.
 
----
-
 ## 2. Student Model
 
 ### Model Choice
@@ -116,8 +108,6 @@ The student model is:
 
 The student model functions as the **integration layer** of the system, where knowledge from multiple scientific domains is brought into a shared generative model.
 
----
-
 ## 3. Teacher Models
 
 The system uses domain-specialised models as sources of structured knowledge:
@@ -137,8 +127,6 @@ Teacher models provide:
 ### Rationale
 
 Rather than training a single model from scratch, the system leverages **existing domain expertise** embedded in specialised models and transfers that knowledge into a shared student model.
-
----
 
 ## 4. Knowledge Distillation Framework
 
@@ -165,14 +153,10 @@ The goal is to:
 - encourage integration across domains  
 - improve cross-disciplinary reasoning capacity  
 
----
-
 ## System Flow
 
-
-
 ```text
-   Scientific Data Sources
+Scientific Data Sources
 (arXiv, PubMed, Wikipedia, SciQ)
                 |
                 v
@@ -222,7 +206,7 @@ Current and planned approaches include:
 * reasoning consistency across disciplines
 * qualitative analysis of generated outputs
 
-## Limitations
+## Limitations
 
 This system is an early-stage research prototype.
 
