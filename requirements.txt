@@ -27,5 +27,9 @@ beautifulsoup4>=4.12.0   # ScientificTextCleaner uses BeautifulSoup for HTML cle
 contractions>=0.1.73     # ScientificTextCleaner uses contractions.fix()
 lxml>=5.1.0              # Recommended HTML parser backend for BeautifulSoup
 
+# Tokenizer backends (required for BioBERT/SciBERT SentencePiece tokenizers)
+protobuf>=4.25.0
+sentencepiece>=0.2.0
+
 # Optional — quantisation support on CUDA
 bitsandbytes>=0.43.0
