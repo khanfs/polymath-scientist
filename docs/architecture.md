@@ -14,6 +14,7 @@ The system combines:
 The central hypothesis is that **cross-domain knowledge transfer** can enable a student model to integrate scientific knowledge across physics, chemistry, and biology.
 
 ---
+
 ## Design Principles
 
 The system is built around the following principles:
@@ -48,6 +49,7 @@ The architecture is designed to scale to:
 - additional scientific domains
 
 ---
+
 ## System Components
 
 The system consists of four primary components:
@@ -58,6 +60,7 @@ The system consists of four primary components:
 4. Knowledge Distillation Framework  
 
 ---
+
 ## 1. Data Layer
 
 ### Data Sources
@@ -111,6 +114,7 @@ The student model is:
 The student model acts as the **integration layer**, where knowledge from multiple domains is combined.
 
 ---
+
 ## 3. Teacher Models
 The system uses domain-specialised models as sources of structured knowledge:
 
@@ -131,6 +135,7 @@ Teacher models provide:
 Rather than training a single model from scratch, the system leverages **existing domain expertise** embedded in specialised models.
 
 ---
+
 ## 4. Knowledge Distillation Framework
 
 ### Concept
@@ -159,6 +164,7 @@ The goal is to:
 - improve cross-disciplinary reasoning
 
 ---
+
 ## System Flow
 
 ```text
@@ -184,6 +190,7 @@ BioBERT       ChemBERTa        SciBERT
 ```
 
 ---
+
 ## Training Pipeline
 
 The training process consists of two stages:
@@ -197,6 +204,7 @@ The training process consists of two stages:
 * objective: refine domain-specific understanding and integration
 
 ---
+
 ## Evaluation Strategy (Work in Progress)
 
 Evaluating interdisciplinary reasoning remains an open challenge.
@@ -209,6 +217,7 @@ Current and planned approaches include:
 * qualitative analysis of generated outputs
 
 ---
+
 ## Limitations
 
 This system is an early-stage research prototype.
@@ -221,6 +230,7 @@ Key limitations include:
 * reliance on relatively small student model (DistilGPT2)
 
 ---
+
 ## Future Work
 Planned directions include:
 
@@ -231,6 +241,7 @@ Planned directions include:
 * exploring alternative architectures (e.g. mixture-of-experts, modular systems)
 
 ---
+
 ## Research Direction
 
 This project is part of a broader effort to explore:
