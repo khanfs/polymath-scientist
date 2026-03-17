@@ -61,6 +61,7 @@ from transformers import (
     AutoModel,
     AutoModelForCausalLM,
     AutoTokenizer,
+    BertModel,
     get_cosine_schedule_with_warmup,
 )
 
@@ -235,9 +236,13 @@ class PolymathDistillationTrainer:
         """
         self.logger.info("Loading teacher models and tokenizers...")
 
+        # All three teachers are BERT-based encoders.  We load them explicitly
+        # as BertModel rather than using AutoModel because older checkpoints
+        # (e.g. dmis-lab/biobert-base-cased-v1.1) lack the model_type key in
+        # config.json that AutoModel requires in transformers >= 4.40.
         teachers = {
             "bio": {
-                "model": AutoModel.from_pretrained(
+                "model": BertModel.from_pretrained(
                     "dmis-lab/biobert-base-cased-v1.1"
                 ).eval(),
                 "tokenizer": AutoTokenizer.from_pretrained(
@@ -245,7 +250,7 @@ class PolymathDistillationTrainer:
                 ),
             },
             "chem": {
-                "model": AutoModel.from_pretrained(
+                "model": BertModel.from_pretrained(
                     "seyonec/ChemBERTa-zinc-base-v1"
                 ).eval(),
                 "tokenizer": AutoTokenizer.from_pretrained(
@@ -253,7 +258,7 @@ class PolymathDistillationTrainer:
                 ),
             },
             "phys": {
-                "model": AutoModel.from_pretrained(
+                "model": BertModel.from_pretrained(
                     "allenai/scibert_scivocab_uncased"
                 ).eval(),
                 "tokenizer": AutoTokenizer.from_pretrained(
