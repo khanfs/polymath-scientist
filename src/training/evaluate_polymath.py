@@ -263,9 +263,20 @@ class PolymathEvaluator:
             new_tokens = outputs[0][input_length:]
             raw_response = self.tokenizer.decode(new_tokens, skip_special_tokens=True).lstrip()
 
-        # Capitalise the first letter of the response.
+        # Strip BPE boundary fragment.  The first decoded token of the response
+        # sometimes encodes a few characters from the preceding context token,
+        # leaving a short lowercase fragment at the start (e.g. "e regulation",
+        # "l established", "ences External").  These fragments are always:
+        #   (a) lowercase  (b) 1-5 characters  (c) followed by a space
+        # Detect and remove them before capitalising.
         if raw_response:
-            raw_response = raw_response[0].upper() + raw_response[1:]
+            raw_response = raw_response.lstrip()
+            if raw_response and raw_response[0].islower():
+                first_space = raw_response.find(" ")
+                if 0 < first_space <= 5:
+                    raw_response = raw_response[first_space + 1:].lstrip()
+            if raw_response:
+                raw_response = raw_response[0].upper() + raw_response[1:]
 
         # Remove training-data artefacts from the generated text.
         return clean_generated_text(raw_response)
