@@ -61,7 +61,7 @@ class EvaluationConfig:
 
     # Wrap prompts in an instruction template so the model sees a completion
     # pattern it can follow rather than treating the prompt as a document start.
-    instruction_template: str = "Scientific explanation:\n{prompt}\nAnswer:"
+    instruction_template: str = "Scientific explanation:\n{prompt}\nAnswer:\n"
 
     generation: GenerationConfig = field(default_factory=GenerationConfig)
 
@@ -247,6 +247,13 @@ class PolymathEvaluator:
         # Decode only the newly generated tokens — strips the prompt echo.
         new_tokens = outputs[0][input_length:]
         raw_response = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+
+        # BPE tokenizers sometimes encode the last input token and first output
+        # character together, causing the decoded response to start mid-word
+        # (e.g. "ypes" instead of "types").  Strip any leading partial word —
+        # defined as a run of lowercase letters before the first space or
+        # uppercase letter — to recover clean sentence starts.
+        raw_response = re.sub(r"^[a-z]+(?=\s|[A-Z]|$)", "", raw_response).lstrip()
 
         # Remove training-data artefacts from the generated text.
         return clean_generated_text(raw_response)
