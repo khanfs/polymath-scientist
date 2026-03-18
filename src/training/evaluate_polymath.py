@@ -250,10 +250,17 @@ class PolymathEvaluator:
 
         # BPE tokenizers sometimes encode the last input token and first output
         # character together, causing the decoded response to start mid-word
-        # (e.g. "ypes" instead of "types").  Strip any leading partial word —
-        # defined as a run of lowercase letters before the first space or
-        # uppercase letter — to recover clean sentence starts.
-        raw_response = re.sub(r"^[a-z]+(?=\s|[A-Z]|$)", "", raw_response).lstrip()
+        # (e.g. "tic" instead of "genetic").  If the response starts with a
+        # lowercase letter, strip up to and including the first space — this
+        # removes the partial leading fragment and recovers a clean word start.
+        raw_response = raw_response.strip()
+        if raw_response and raw_response[0].islower():
+            space_idx = raw_response.find(" ")
+            if 0 < space_idx < 20:   # only strip short fragments, not whole sentences
+                raw_response = raw_response[space_idx:].lstrip()
+                # Capitalise the first letter of the cleaned response
+                if raw_response:
+                    raw_response = raw_response[0].upper() + raw_response[1:]
 
         # Remove training-data artefacts from the generated text.
         return clean_generated_text(raw_response)
