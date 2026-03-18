@@ -61,7 +61,7 @@ class EvaluationConfig:
 
     # Wrap prompts in an instruction template so the model sees a completion
     # pattern it can follow rather than treating the prompt as a document start.
-    instruction_template: str = "Scientific explanation:\n{prompt}\nAnswer: "
+    instruction_template: str = "Scientific explanation:\n{prompt}\nAnswer:"
 
     generation: GenerationConfig = field(default_factory=GenerationConfig)
 
@@ -254,7 +254,7 @@ class PolymathEvaluator:
         # Find the last occurrence of "Answer:" and take everything after it.
         # Using rfind handles the edge case where "Answer:" appears in the
         # prompt topic text as well.
-        marker = "Answer: "
+        marker = "Answer:"
         marker_idx = full_output.rfind(marker)
         if marker_idx != -1:
             raw_response = full_output[marker_idx + len(marker):].lstrip()
