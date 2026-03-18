@@ -1,6 +1,6 @@
-# Polymath Scientist
+# AI Polymath Scientist
 
-**Polymath Scientist** is a research prototype investigating whether language models can acquire **interdisciplinary scientific reasoning** through multi-teacher knowledge distillation.
+**AI Polymath Scientist** is a research prototype investigating whether language models can acquire **interdisciplinary scientific reasoning** through multi-teacher knowledge distillation.
 
 The project explores a training framework in which domain-specialised teacher models transfer knowledge from **biology**, **chemistry**, and **physics** into a shared student model. The goal is to study whether this process can support more integrated, cross-domain scientific reasoning.
 
@@ -61,6 +61,7 @@ Scientific Data Sources
      BioBERT    ChemBERTa    SciBERT
     (Biology)   (Chemistry)  (Scientific Text)
 ```
+
 The student model is shaped by two complementary learning signals: data-driven adaptation on multidisciplinary scientific text, and teacher-guided distillation from domain-specialised models.
 
 ## Dataset
@@ -189,12 +190,13 @@ polymath-scientist/
 │   └── architecture.md
 └── ...
 ```
+
 Generated artifacts such as `splits/`, `fine_tuned_model/`, `logs/`, caches, and large datasets are excluded from version control.
 
 ## Current Status
 This repository is an active research prototype.
 
-### Implemented
+### Implemented
 
 * scientific dataset loading and preprocessing
 * multidisciplinary corpus construction
@@ -244,7 +246,7 @@ Potential improvements include:
 * scientific hypothesis generation
 * modular or multi-agent scientific reasoning systems
 
-## Limitations
+## Limitations
 
 This is an early-stage research prototype, not a production system.
 
