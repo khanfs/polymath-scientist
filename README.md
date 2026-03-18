@@ -1,181 +1,71 @@
 # Polymath Scientist
-### A prototype scientific reasoning engine for cross-disciplinary knowledge synthesis
 
-     Scientific Data Sources
-(arXiv, Wikipedia, SciQ, eLife, PLoS)
-                │
-                ▼
-           Data Pipeline
-(cleaning, topic balancing, validation)
-                │
-                ▼
-          Dataset Splits
-        (train / validation)
-                │
-                ▼
-     Student Model Fine-Tuning
-            DistilGPT2
-                │
-                ▼
-      Multi-Teacher Distillation
-                ▲
-                │
-   ┌────────────┼────────────┐
-   │            │            │
-   │            │            │
- BioBERT     ChemBERTa     SciBERT
- (Biology)   (Chemistry)    (Physics)
-   │            │            │
-   └────────────┴────────────┘
-                │
-                ▼
-       Distilled Polymath Model
-                │
-                ▼
-        Structured Evaluation
-     (domain + cross-domain prompts)
-                │
-                ▼
-     Cross-Disciplinary Scientific
-            Reasoning Outputs
+**Polymath Scientist** is a research prototype investigating whether language models can acquire **interdisciplinary scientific reasoning** through multi-teacher knowledge distillation.
 
-The system trains a generative student model on multidisciplinary scientific text, then distils representational structure from biology, chemistry, and physics teacher models into a single cross-domain reasoning prototype.
+The project explores a training framework in which domain-specialised teacher models transfer knowledge from **biology**, **chemistry**, and **physics** into a shared student model. The goal is to study whether this process can support more integrated, cross-domain scientific reasoning.
 
-##Overview
-Polymath Scientist AI is a research prototype investigating whether large language models can acquire interdisciplinary scientific reasoning through multi-teacher knowledge distillation.
-Most AI systems are trained within narrow domains. However, scientific discovery increasingly requires integrating knowledge across disciplines.
+The system combines multidisciplinary scientific data, domain-adaptive fine-tuning of a generative student model, and multi-teacher distillation into a single cross-domain reasoning prototype.
 
-This project explores a training framework where domain-specialised models teach a shared student model capable of integrating knowledge across physics, chemistry and biology.
+## Research Motivation
 
-The system combines:
-* multidisciplinary scientific datasets
-* student model fine-tuning
-* multi-teacher knowledge distillation
+Many AI systems used in science remain domain-specific. In practice, however, important scientific problems often sit at the intersection of multiple fields.
 
-The goal is to explore whether such systems can develop polymath-style scientific reasoning.
+This project explores a different direction: a **polymath-style scientific AI system** trained to integrate knowledge across disciplines rather than operate within a single silo.
 
+The central question is:
 
+> Can a student language model develop broader interdisciplinary scientific reasoning by learning from multiple domain-specialised teacher models?
 
+## Research Questions
 
+This repository investigates questions such as:
 
+1. Can a student model learn cross-domain scientific reasoning?
+2. Can multi-teacher distillation improve interdisciplinary knowledge integration in a generative language model?
+3. What dataset preparation and training strategies best support cross-domain knowledge transfer?
+4. How should interdisciplinary reasoning be evaluated in scientific AI systems?
 
-# Polymath Scientist
+## System Overview
 
-Polymath Scientist is an experimental scientific reasoning engine prototype that explores how a generative language model can integrate knowledge across multiple scientific domains. The system combines multidisciplinary training of a DistilGPT-2 student model with multi-teacher knowledge distillation from domain-specialized models (BioBERT, ChemBERTa, and SciBERT) to transfer structured expertise from biology, chemistry, and physics into a single generative model. 
+The system currently consists of three main stages:
 
-The project investigates whether representation-level distillation and cross-domain training can produce a language model capable of synthesizing scientific concepts across disciplines, providing an early step toward AI systems that assist with scientific reasoning, hypothesis generation, and interdisciplinary discovery.
+1. **Multidisciplinary data preparation**  
+   Scientific text is collected and processed from multiple sources to create a cross-domain corpus.
 
-Polymath Scientist
+2. **Student model training**  
+   A student language model is adapted to multidisciplinary scientific text.
 
-A prototype scientific reasoning engine for cross-disciplinary knowledge synthesis.
+3. **Multi-teacher knowledge distillation**  
+   Domain-specialised teacher models transfer structured domain knowledge into the student model.
 
-
-
-Polymath Scientist is an experimental **scientific language model prototype** designed to integrate knowledge across **physics, chemistry, and biology** using **cross-architecture, multi-teacher knowledge distillation**.
-
-The project explores how domain-specialized scientific language models can transfer knowledge to a generalist student model capable of **cross-disciplinary reasoning**.
-
-The long-term goal is to build an **AI system capable of synthesizing insights across scientific domains**, similar to how polymath scientists integrate ideas across fields.
-
----
-
-# Architecture Overview
-
-This project investigates whether a generative language model can acquire cross-domain scientific reasoning through:
-
-* multidisciplinary fine-tuning of DistilGPT2
-* cross-architecture knowledge distillation
-* multi-teacher transfer from BioBERT, ChemBERTa, and SciBERT
-* custom hybrid architectural components for domain-aware processing and cross-domain interaction
-
-## Models
-
-* **Student model:** DistilGPT2
-* **Teacher models:** BioBERT, ChemBERTa, SciBERT
-
-The system consists of three main components.
-
-### Student Model
-
-The student model is a **fine-tuned DistilGPT-2 language model** trained on a multidisciplinary scientific corpus.
-
-It is intended to generate scientific reasoning across domains.
-
-### Teacher Models
-
-Three specialized teacher models provide domain expertise:
-
-| Domain    | Teacher Model |
-| --------- | ------------- |
-| Biology   | BioBERT       |
-| Chemistry | ChemBERTa     |
-| Physics   | SciBERT       |
-
-These models are used during **knowledge distillation** to transfer domain-specific knowledge to the student model.
-
-### Knowledge Distillation
-
-The student model learns by minimizing a combined loss:
-
-* **Distillation loss**
-  Aligns student predictions with teacher model outputs.
-
-* **Language modelling loss**
-  Helps the student maintain coherent text generation.
-
-This produces a student model that integrates signals from multiple scientific teachers.
-
----
-
-# Project Structure
+## Architecture
 
 ```text
-polymath-scientist/
-│
-├── src/
-│   ├── data/
-│   │   ├── load_data.py
-│   │   ├── multidisciplinary_data.py
-│   │   ├── cross_validation.py
-│   │   └── validate_datasets.py
-│   │
-│   ├── helpers/
-│   │   ├── text_cleaning.py
-│   │   ├── topic_balancing.py
-│   │   ├── data_augmentation.py
-│   │   ├── data_caching.py
-│   │   ├── parallel_processing.py
-│   │   ├── vocabulary_analysis.py
-│   │   └── shuffling_analysis.py
-│   │
-│   ├── models/
-│   │
-│   └── training/
-│       └── distillation.py
-│
-├── scripts/
-│   ├── run_data_pipeline.py
-│   └── run_training.py
-│
-├── notebooks/
-│   ├── analyse_polymath_dataset.ipynb
-│   ├── evaluate_fine_tuned_student_model.ipynb
-│   └── fine_tuned_student_model_prompts.ipynb
-│
-├── data/
-├── docs/
-├── tests/
-├── requirements.txt
-└── README.md
+Scientific Data Sources
+(arXiv, PubMed, Wikipedia, SciQ)
+                |
+                v
+   Multidisciplinary Data Pipeline
+                |
+                v
+   Domain-Adaptive Fine-Tuning
+         of DistilGPT2
+                |
+                v
+      Polymath Scientist Model
+                ^
+                |
+   Multi-Teacher Knowledge Distillation
+        ^           ^           ^
+        |           |           |
+     BioBERT    ChemBERTa    SciBERT
+    (Biology)   (Chemistry)  (Scientific Text)
 ```
+The student model is shaped by two complementary learning signals: data-driven adaptation on multidisciplinary scientific text, and teacher-guided distillation from domain-specialised models.
 
-Generated artifacts such as `splits/`, `fine_tuned_model/`, `logs/`, caches, and large datasets are excluded from version control.
+## Dataset
 
----
-
-# Dataset
-
-The training dataset integrates scientific text from multiple sources:
+The training corpus integrates scientific text from multiple sources:
 
 | Dataset         | Purpose                  |
 | --------------- | ------------------------ |
@@ -185,12 +75,22 @@ The training dataset integrates scientific text from multiple sources:
 | eLife summaries | Biological lay summaries |
 | PLoS summaries  | Biomedical lay summaries |
 
-The pipeline is:
+## Data Pipeline
+
+The data pipeline is designed to:
+
+* extract scientific content
+* reduce noise and metadata
+* balance domain coverage
+* generate train / validation / test splits
+* support lightweight sampling modes for rapid experimentation
+
+**The pipeline is:**
 
 ```text
 raw datasets
       ↓
-cleaning
+text extraction and cleaning
       ↓
 topic balancing
       ↓
@@ -201,9 +101,7 @@ dataset analysis
 train / validation / test splits
 ```
 
----
-
-# Running the Data Pipeline
+### Running the Data Pipeline
 
 From the project root:
 
@@ -213,15 +111,41 @@ python scripts/run_data_pipeline.py
 
 This will:
 
-1. Load raw datasets
-2. Clean and preprocess text
-3. Build the multidisciplinary corpus
-4. Generate train / validation / test splits
-5. Validate the dataset
+1. Loads raw datasets
+2. Cleans and preprocesses text
+3. Builds the multidisciplinary corpus
+4. Generates train / validation / test splits
+5. Validates the dataset outputs
 
----
+## Models
 
-# Training the Distilled Model
+### Student model
+
+DistilGPT2 is used as the student model. It provides a lightweight autoregressive language model suitable for rapid experimentation in scientific domain adaptation and multi-teacher distillation.
+
+### Teacher Models
+
+Three specialised teacher models provide domain expertise during **knowledge distillation** to transfer domain-specific knowledge to the student model.
+
+| Domain          | Teacher Model |
+| --------------- | ------------- |
+| Biology         | BioBERT       |
+| Chemistry       | ChemBERTa     |
+| Scientific text | SciBERT       |
+
+These teacher models provide structured representations and domain-specific contextual knowledge that are transferred into the shared student model.
+
+## Knowledge Distillation
+
+The student model learns by minimizing a combined loss:
+
+* **Distillation loss**: Aligns student predictions with teacher model outputs.
+
+* **Language modelling loss**: Helps the student maintain coherent text generation.
+
+These teacher models provide structured representations and domain-specific contextual knowledge that are transferred into the shared student model.
+
+### Training the Distilled Model
 
 Once dataset splits exist locally, for example:
 
@@ -237,69 +161,119 @@ run:
 python scripts/run_training.py
 ```
 
-This will:
+This script will:
 
 1. Load the fine-tuned DistilGPT-2 student model
 2. Load teacher models
 3. Run multi-teacher knowledge distillation
 4. Save the distilled student model
 
----
+## Repository Structure
 
-# Example Research Questions
+```text 
+polymath-scientist/
+├── README.md
+├── src/
+│   ├── data/
+│   │   ├── load_data.py
+│   │   ├── multidisciplinary_data.py
+│   │   ├── cross_validation.py
+│   │   └── validate_datasets.py
+│   ├── training/
+│   │   ├── training.py
+│   │   └── distillation.py
+│   └── ...
+├── scripts/
+│   └── run_end_to_end.py
+├── docs/
+│   └── architecture.md
+└── ...
+```
+Generated artifacts such as `splits/`, `fine_tuned_model/`, `logs/`, caches, and large datasets are excluded from version control.
 
-This project explores questions such as:
+## Current Status
+This repository is an active research prototype.
 
-* Can domain-specific scientific language models transfer knowledge to a generalist model?
-* Can a student model learn cross-disciplinary scientific reasoning?
-* Can multi-teacher distillation produce a polymath-style AI system?
+### Implemented
 
----
+* scientific dataset loading and preprocessing
+* multidisciplinary corpus construction
+* train / validation / test split generation
+* student model training pipeline
+* multi-teacher distillation framework
+* compatibility fixes for evolving transformer and dataset APIs
 
-# Future Directions
+### In progress
+
+* evaluation of interdisciplinary reasoning
+* stronger benchmark design
+* improved distillation objectives
+* larger-scale training and ablation studies
+
+## Example Workflow
+
+**Install dependencies**
+```bash
+pip install -r requirements.txt
+```
+
+**Run the end-to-end pipeline**
+```bash
+python scripts/run_end_to_end.py
+```
+
+## Project Goal
+
+The long-term aim of this project is to explore the development of AI systems capable of more integrated scientific reasoning across domains.
+Potential future applications include:
+
+* interdisciplinary scientific discovery
+* hypothesis generation
+* scientific literature synthesis
+* AI-assisted research workflows
+* cross-domain reasoning systems spanning the natural sciences
+
+## Future Directions
 
 Potential improvements include:
 
 * representation-level distillation
 * teacher-to-student projection layers for improved alignment
-* cross-modal scientific reasoning
+* stronger evaluation of cross-domain scientific reasoning
 * retrieval-augmented scientific knowledge
 * scientific hypothesis generation
-* multi-agent scientific reasoning systems
+* modular or multi-agent scientific reasoning systems
 
----
+## Limitations
 
-# Hardware
+This is an early-stage research prototype, not a production system.
 
-The pipeline is designed to run on:
+Current limitations include:
 
-* Apple Silicon (M-series)
-* CUDA GPUs
-* Google Colab
+* early evaluation framework
+* limited benchmark coverage
+* constrained scale relative to frontier foundation models
+* ongoing work on measuring true interdisciplinary reasoning
 
----
+## Documentation
 
-# Status
+- [System Architecture](docs/architecture.md)
 
-Research prototype / work in progress.
+## Citation
 
-# Notes
+```bibtex
+@misc{khan2026polymathscientist,
+  author = {Farooq Khan},
+  title = {Polymath Scientist: A Research Prototype for Interdisciplinary Scientific Reasoning},
+  year = {2026},
+  howpublished = {GitHub repository}
+}
+```
 
-Large datasets, caches, checkpoints, and generated artifacts are excluded from version control.
-
----
+## Author
+Farooq Khan
+AI researcher working on scientific AI, interdisciplinary reasoning, and next-generation AI systems for science.
 
 # License
 
 MIT License
-
----
-
-# Author
-
-**Farooq Khan**
-
-AI researcher working on **transdisciplinary scientific AI systems** and **AI-native discovery platforms**.
-
----
-
