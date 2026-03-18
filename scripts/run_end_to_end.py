@@ -205,7 +205,7 @@ def stage_training(sample_mode: bool) -> None:
 # Stage 3 — Knowledge distillation
 # ──────────────────────────────────────────────────────────────────────────────
 
-def stage_distillation(sample_mode: bool) -> None:
+def stage_distillation(sample_mode: bool, resume_epoch: int = 0) -> None:
     _banner("Stage 3 / 4 — Multi-Teacher Knowledge Distillation")
     t0 = time.time()
 
@@ -232,6 +232,7 @@ def stage_distillation(sample_mode: bool) -> None:
         student_hidden_size=768,
         teacher_hidden_size=768,
         projection_dim=256,
+        resume_from_epoch=resume_epoch,
     )
 
     trainer = PolymathDistillationTrainer(config=config)
@@ -317,6 +318,12 @@ def main() -> None:
         default="all",
         help="Run a specific stage only, or 'all' (default)",
     )
+    parser.add_argument(
+        "--resume-from-epoch",
+        type=int,
+        default=0,
+        help="Resume distillation from checkpoint_epoch_N (0 = start from scratch)",
+    )
     args = parser.parse_args()
 
     sample_mode = args.mode == "sample"
@@ -335,7 +342,7 @@ def main() -> None:
         if stage in ("train", "all"):
             stage_training(sample_mode)
         if stage in ("distill", "all"):
-            stage_distillation(sample_mode)
+            stage_distillation(sample_mode, resume_epoch=args.resume_from_epoch)
         if stage in ("eval", "all"):
             stage_evaluation()
 

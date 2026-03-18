@@ -10,6 +10,7 @@ This script:
 
 from __future__ import annotations
 
+import argparse
 import logging
 from pathlib import Path
 
@@ -29,6 +30,15 @@ def main() -> None:
 
     logger.info("Starting polymath distillation training run...")
 
+    parser = argparse.ArgumentParser(description="Run distillation training")
+    parser.add_argument(
+        "--resume-from-epoch",
+        type=int,
+        default=0,
+        help="Resume from checkpoint_epoch_N (0 = start from scratch)",
+    )
+    args = parser.parse_args()
+
     config = DistillationConfig(
         base_path=project_root,
         splits_dir="data/splits",
@@ -42,13 +52,10 @@ def main() -> None:
         alpha_lm=1.0,
         num_workers=0,
         warmup_steps=100,
-        # Projection head dimensions — both DistilGPT-2 and BERT-style
-        # teachers have hidden_size=768, but their representation spaces
-        # are incompatible.  Projection heads map both sides into a shared
-        # 256-dimensional space before the distillation loss is computed.
         student_hidden_size=768,
         teacher_hidden_size=768,
         projection_dim=256,
+        resume_from_epoch=args.resume_from_epoch,
     )
 
     trainer = PolymathDistillationTrainer(config=config)

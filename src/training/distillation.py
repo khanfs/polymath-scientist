@@ -113,6 +113,10 @@ class DistillationConfig:
 
     device: str = get_best_device()
 
+    # Set to N to resume from checkpoint_epoch_N and skip epochs 1..N.
+    # 0 means start from scratch.
+    resume_from_epoch: int = 0
+
 
 # ---------------------------------------------------------------------------
 # Projection head
@@ -479,6 +483,25 @@ class PolymathDistillationTrainer:
         label = f" ({tag})" if tag else ""
         self.logger.info("Saved checkpoint%s to %s", label, path)
 
+    def _load_projection_heads(self, path: Path) -> None:
+        """Load projection head weights from a checkpoint directory."""
+        proj_path = path / "projection_heads.pt"
+        if not proj_path.exists():
+            self.logger.warning(
+                "No projection_heads.pt found in %s — heads will start from scratch.", path
+            )
+            return
+
+        state = torch.load(proj_path, map_location=self.device)
+        self.student_proj.load_state_dict(state["student_proj"])
+        for name, proj in self.teacher_projs.items():
+            if name in state["teacher_projs"]:
+                proj.load_state_dict(state["teacher_projs"][name])
+            else:
+                self.logger.warning("No saved state for teacher proj '%s'.", name)
+
+        self.logger.info("Loaded projection heads from %s", proj_path)
+
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
@@ -589,9 +612,42 @@ class PolymathDistillationTrainer:
             student_model, total_steps
         )
 
+        # Handle checkpoint resumption.
+        start_epoch = 0
         best_val_loss = float("inf")
 
-        for epoch in range(self.config.epochs):
+        if self.config.resume_from_epoch > 0:
+            resume_ckpt = self.model_output_path / f"checkpoint_epoch_{self.config.resume_from_epoch}"
+            if resume_ckpt.exists():
+                self.logger.info(
+                    "Resuming from epoch %s checkpoint: %s",
+                    self.config.resume_from_epoch,
+                    resume_ckpt,
+                )
+                # Reload student weights from the checkpoint into the
+                # already-loaded model in-place.
+                from transformers import AutoModelForCausalLM
+                resumed = AutoModelForCausalLM.from_pretrained(resume_ckpt)
+                student_model.load_state_dict(resumed.state_dict())
+                del resumed
+
+                self._load_projection_heads(resume_ckpt)
+
+                # Fast-forward the scheduler to match completed steps.
+                completed_steps = len(train_loader) * self.config.resume_from_epoch
+                for _ in range(completed_steps):
+                    scheduler.step()
+
+                start_epoch = self.config.resume_from_epoch
+                self.logger.info(
+                    "Resumed successfully — starting from epoch %s", start_epoch + 1
+                )
+            else:
+                self.logger.warning(
+                    "Resume checkpoint not found at %s — starting from scratch.", resume_ckpt
+                )
+
+        for epoch in range(start_epoch, self.config.epochs):
             self.logger.info("Epoch %s/%s", epoch + 1, self.config.epochs)
 
             student_model.train()
