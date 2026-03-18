@@ -244,19 +244,22 @@ class PolymathEvaluator:
                 eos_token_id=self.tokenizer.eos_token_id,
             )
 
-        # Decode the full output sequence, then strip the formatted prompt
-        # from the front as a plain string.  This is more reliable than slicing
-        # at input_length token boundaries, which causes mid-word artefacts
-        # because BPE tokens can straddle the input/output boundary.
+        # Decode the full output sequence and locate the response by searching
+        # for the "Answer:" marker in the decoded text.  This is more robust
+        # than slicing at input_length token boundaries (BPE tokens can straddle
+        # the prompt/response boundary) or exact string prefix matching
+        # (tokenizer round-trips are not always identical to the input string).
         full_output = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-        # Remove the formatted prompt prefix.  Use lstrip on the remainder to
-        # handle any leading whitespace or newline the model may have emitted.
-        if full_output.startswith(formatted):
-            raw_response = full_output[len(formatted):].lstrip()
+        # Find the last occurrence of "Answer:" and take everything after it.
+        # Using rfind handles the edge case where "Answer:" appears in the
+        # prompt topic text as well.
+        marker = "Answer:"
+        marker_idx = full_output.rfind(marker)
+        if marker_idx != -1:
+            raw_response = full_output[marker_idx + len(marker):].lstrip()
         else:
-            # Fallback: token-slice if string prefix match fails (shouldn't
-            # happen in practice but keeps the code robust).
+            # Fallback: token-slice if marker not found
             new_tokens = outputs[0][input_length:]
             raw_response = self.tokenizer.decode(new_tokens, skip_special_tokens=True).lstrip()
 
