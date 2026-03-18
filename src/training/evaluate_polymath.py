@@ -244,23 +244,25 @@ class PolymathEvaluator:
                 eos_token_id=self.tokenizer.eos_token_id,
             )
 
-        # Decode only the newly generated tokens — strips the prompt echo.
-        new_tokens = outputs[0][input_length:]
-        raw_response = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+        # Decode the full output sequence, then strip the formatted prompt
+        # from the front as a plain string.  This is more reliable than slicing
+        # at input_length token boundaries, which causes mid-word artefacts
+        # because BPE tokens can straddle the input/output boundary.
+        full_output = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-        # BPE tokenizers sometimes encode the last input token and first output
-        # character together, causing the decoded response to start mid-word
-        # (e.g. "tic" instead of "genetic").  If the response starts with a
-        # lowercase letter, strip up to and including the first space — this
-        # removes the partial leading fragment and recovers a clean word start.
-        raw_response = raw_response.strip()
-        if raw_response and raw_response[0].islower():
-            space_idx = raw_response.find(" ")
-            if 0 < space_idx < 20:   # only strip short fragments, not whole sentences
-                raw_response = raw_response[space_idx:].lstrip()
-                # Capitalise the first letter of the cleaned response
-                if raw_response:
-                    raw_response = raw_response[0].upper() + raw_response[1:]
+        # Remove the formatted prompt prefix.  Use lstrip on the remainder to
+        # handle any leading whitespace or newline the model may have emitted.
+        if full_output.startswith(formatted):
+            raw_response = full_output[len(formatted):].lstrip()
+        else:
+            # Fallback: token-slice if string prefix match fails (shouldn't
+            # happen in practice but keeps the code robust).
+            new_tokens = outputs[0][input_length:]
+            raw_response = self.tokenizer.decode(new_tokens, skip_special_tokens=True).lstrip()
+
+        # Capitalise the first letter of the response.
+        if raw_response:
+            raw_response = raw_response[0].upper() + raw_response[1:]
 
         # Remove training-data artefacts from the generated text.
         return clean_generated_text(raw_response)
