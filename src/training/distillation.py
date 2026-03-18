@@ -705,6 +705,20 @@ class PolymathDistillationTrainer:
                     + self.config.alpha_lm * lm_loss
                 )
 
+                # Guard against NaN/Inf losses — common on MPS when
+                # representations collapse late in training.  Skip the
+                # backward pass for any bad batch rather than letting
+                # degenerate gradients corrupt the model.
+                if not torch.isfinite(total_loss):
+                    self.logger.warning(
+                        "Non-finite loss detected (distill=%.4f lm=%.4f) — skipping batch.",
+                        distill_loss.item(),
+                        lm_loss.item(),
+                    )
+                    optimizer.zero_grad(set_to_none=True)
+                    scheduler.step()
+                    continue
+
                 total_loss.backward()
 
                 # Clip gradients across student model and all projection heads.
