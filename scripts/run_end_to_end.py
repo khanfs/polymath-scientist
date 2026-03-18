@@ -343,7 +343,11 @@ def main() -> None:
             stage_training(sample_mode)
         if stage in ("distill", "all"):
             stage_distillation(sample_mode, resume_epoch=args.resume_from_epoch)
-        if stage in ("eval", "all"):
+            # Always run evaluation after distillation completes, even when
+            # --stage distill was specified explicitly.
+            if stage == "distill":
+                stage_evaluation()
+        elif stage == "eval":
             stage_evaluation()
 
     except Exception as exc:
