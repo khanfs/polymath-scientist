@@ -3,7 +3,9 @@ Evaluation utilities for the fine-tuned or distilled Polymath student model.
 
 This module provides:
 - loading a saved causal language model checkpoint
-- running structured prompt-based evaluation
+- instruction-wrapped prompt formatting
+- new-tokens-only decoding (strips prompt echo)
+- post-processing to remove training-data artefacts
 - saving generated outputs and metadata to JSON
 
 It is designed to be imported from scripts rather than executed directly.
@@ -13,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,12 +41,12 @@ def get_best_device() -> str:
 class GenerationConfig:
     """Configuration for text generation during evaluation."""
 
-    max_new_tokens: int = 150
+    max_new_tokens: int = 200
     temperature: float = 0.7
     top_p: float = 0.9
     top_k: int = 50
     do_sample: bool = True
-    repetition_penalty: float = 1.1
+    repetition_penalty: float = 1.2
 
 
 @dataclass
@@ -55,6 +58,10 @@ class EvaluationConfig:
     output_dir: str = "logs/evaluation"
     log_dir: str = "logs"
     device: str = get_best_device()
+
+    # Wrap prompts in an instruction template so the model sees a completion
+    # pattern it can follow rather than treating the prompt as a document start.
+    instruction_template: str = "Scientific explanation:\n{prompt}\nAnswer:"
 
     generation: GenerationConfig = field(default_factory=GenerationConfig)
 
@@ -81,6 +88,51 @@ class EvaluationConfig:
     )
 
 
+# ---------------------------------------------------------------------------
+# Post-processing
+# ---------------------------------------------------------------------------
+
+# Patterns that are training-data artefacts from PubMed abstracts and
+# Wikipedia markup rather than meaningful generated content.
+_ARTEFACT_PATTERNS: List[re.Pattern] = [
+    re.compile(r'images?\s*figure\s*\d+[\.\s]?', re.IGNORECASE),
+    re.compile(r'\bfig(?:ure)?\s*\d+[\.\s]', re.IGNORECASE),
+    re.compile(r'materials\s+and\s+methods\s*[:\.]?', re.IGNORECASE),
+    re.compile(r'methods?\s*[:\.]', re.IGNORECASE),
+    re.compile(r'results?\s*[:\.]', re.IGNORECASE),
+    re.compile(r'conclusion\s*[:\.]?', re.IGNORECASE),
+    re.compile(r'aims?\s+and\s+', re.IGNORECASE),
+    re.compile(r'\bp\s*[<=>]\s*0\.\d+', re.IGNORECASE),   # p-values
+    re.compile(r'\bn\s*=\s*\d+', re.IGNORECASE),            # sample sizes
+    re.compile(r'et\s+al\.', re.IGNORECASE),
+    re.compile(r'\[\s*\d+\s*\]'),                            # numeric citations
+]
+
+
+def clean_generated_text(text: str) -> str:
+    """
+    Remove training-data artefacts from generated text.
+
+    Strips PubMed figure references, section headers, statistical
+    notation, and other formatting that leaks from the training corpus
+    into generated responses.
+    """
+    for pattern in _ARTEFACT_PATTERNS:
+        text = pattern.sub(' ', text)
+
+    # Collapse multiple spaces / newlines introduced by removals
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    # Remove leading punctuation artefacts
+    text = re.sub(r'^[\s,;:.]+', '', text).strip()
+
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Evaluator
+# ---------------------------------------------------------------------------
+
 class PolymathEvaluator:
     """Reusable evaluator for prompt-based testing of the Polymath student model."""
 
@@ -101,7 +153,6 @@ class PolymathEvaluator:
         self.model = None
 
     def _setup_logger(self) -> logging.Logger:
-        """Set up logger for evaluation."""
         logger = logging.getLogger("polymath_evaluation")
         logger.setLevel(logging.DEBUG)
         logger.propagate = False
@@ -144,18 +195,38 @@ class PolymathEvaluator:
 
         self.logger.info("Model loaded successfully on %s", self.device)
 
+    def _format_prompt(self, prompt: str) -> str:
+        """
+        Wrap a raw prompt in the instruction template.
+
+        The template signals to the model that a scientific explanation
+        is expected, rather than a continuation of an abstract or article.
+        """
+        return self.config.instruction_template.format(prompt=prompt)
+
     def generate_response(self, prompt: str) -> str:
-        """Generate a response for a single prompt."""
+        """
+        Generate a response for a single prompt.
+
+        The prompt is wrapped in an instruction template before tokenisation.
+        Only the newly generated tokens are decoded — the input prompt echo
+        is stripped from the output automatically.
+        """
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("Model and tokenizer must be loaded before generation.")
 
+        formatted = self._format_prompt(prompt)
+
         inputs = self.tokenizer(
-            prompt,
+            formatted,
             return_tensors="pt",
             truncation=True,
             padding=True,
         )
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+        # Record input length so we can strip the prompt echo from the output.
+        input_length = inputs["input_ids"].shape[1]
 
         generation_config = self.config.generation
 
@@ -173,7 +244,12 @@ class PolymathEvaluator:
                 eos_token_id=self.tokenizer.eos_token_id,
             )
 
-        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        # Decode only the newly generated tokens — strips the prompt echo.
+        new_tokens = outputs[0][input_length:]
+        raw_response = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+
+        # Remove training-data artefacts from the generated text.
+        return clean_generated_text(raw_response)
 
     def evaluate_prompt_set(self, category: str, prompts: List[str]) -> List[Dict[str, Any]]:
         """Run evaluation for a group of prompts."""
@@ -181,7 +257,10 @@ class PolymathEvaluator:
 
         results: List[Dict[str, Any]] = []
         for idx, prompt in enumerate(prompts, start=1):
-            self.logger.info("Running prompt %s/%s in category '%s'", idx, len(prompts), category)
+            self.logger.info(
+                "Running prompt %s/%s in category '%s'", idx, len(prompts), category
+            )
+            formatted = self._format_prompt(prompt)
             response = self.generate_response(prompt)
 
             results.append(
@@ -189,6 +268,7 @@ class PolymathEvaluator:
                     "category": category,
                     "prompt_index": idx,
                     "prompt": prompt,
+                    "formatted_prompt": formatted,
                     "response": response,
                 }
             )
@@ -209,6 +289,7 @@ class PolymathEvaluator:
             "model_path": str(self.model_path),
             "device": str(self.device),
             "generation_config": asdict(self.config.generation),
+            "instruction_template": self.config.instruction_template,
             "prompt_sets": {k: len(v) for k, v in self.config.prompt_sets.items()},
             "results": all_results,
         }
