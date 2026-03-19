@@ -423,10 +423,10 @@ class QuantitativeEvaluator:
             },
             "phys": {
                 "model": BertModel.from_pretrained(
-                    "thellert/physbert"
+                    "thellert/physbert_cased"
                 ).eval().to(self.device),
                 "tokenizer": AutoTokenizer.from_pretrained(
-                    "thellert/physbert", use_fast=False
+                    "thellert/physbert_cased", use_fast=False
                 ),
             },
         }

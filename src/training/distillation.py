@@ -284,10 +284,10 @@ class PolymathDistillationTrainer:
             },
             "phys": {
                 "model": BertModel.from_pretrained(
-                    "thellert/physbert"
+                    "thellert/physbert_cased"
                 ).eval(),
                 "tokenizer": AutoTokenizer.from_pretrained(
-                    "thellert/physbert",
+                    "thellert/physbert_cased",
                     use_fast=False,
                 ),
             },
