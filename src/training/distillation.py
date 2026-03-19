@@ -101,6 +101,11 @@ class DistillationConfig:
     # Loss weights
     alpha_distill: float = 1.0
     alpha_lm: float = 1.0
+    # Collapse penalty weight.  Penalises the student projection for converging
+    # to a near-constant output (representation collapse), which was observed
+    # when using BioBERT and SciBERT teachers (cosine sim ≈ 0.999 for all texts).
+    # Set to 0.0 to disable.
+    alpha_collapse: float = 0.1
 
     # Projection head dimensions
     # DistilGPT-2 and BERT-style teachers both have hidden_size=768, but
@@ -181,6 +186,13 @@ class PolymathDistillationTrainer:
             for name in self.TEACHER_NAMES
         }
 
+        # EMA of the student projection, used by the collapse penalty.
+        # Tracks the running mean of student projected representations across
+        # batches.  If all batches produce nearly the same projection, the
+        # cosine similarity to this EMA will be high — that's the collapse signal.
+        self._student_proj_ema: Optional[torch.Tensor] = None
+        self._ema_decay: float = 0.995
+
     # ------------------------------------------------------------------
     # Logging
     # ------------------------------------------------------------------
@@ -231,12 +243,15 @@ class PolymathDistillationTrainer:
 
         Teacher-to-domain mapping
         -------------------------
-        bio  → BioBERT      (biomedical pre-training; biology domain)
-        chem → ChemBERTa    (chemistry/SMILES pre-training; chemistry domain)
-        phys → SciBERT      (general scientific text; used as physics-domain
-                             proxy — a physics-specific model would be
-                             preferable but is not publicly available at
-                             this scale)
+        bio  → BioBERT v1.2   (biomedical natural language; biology domain)
+        chem → MatSciBERT     (materials science / chemistry natural language)
+        phys → SciBERT        (general scientific text; physics-domain proxy)
+
+        ChemBERTa was replaced with MatSciBERT (m3rg-iitd/matscibert) because
+        ChemBERTa is pre-trained on SMILES molecular structure notation, not
+        natural language chemistry text.  MatSciBERT is trained on materials
+        science literature (natural language), making it far more compatible
+        with the prose-based training corpus.
         """
         self.logger.info("Loading teacher models and tokenizers...")
 
@@ -256,10 +271,10 @@ class PolymathDistillationTrainer:
             },
             "chem": {
                 "model": BertModel.from_pretrained(
-                    "seyonec/ChemBERTa-zinc-base-v1"
+                    "m3rg-iitd/matscibert"
                 ).eval(),
                 "tokenizer": AutoTokenizer.from_pretrained(
-                    "seyonec/ChemBERTa-zinc-base-v1",
+                    "m3rg-iitd/matscibert",
                     use_fast=False,
                 ),
             },
@@ -411,6 +426,39 @@ class PolymathDistillationTrainer:
     # ------------------------------------------------------------------
     # Loss
     # ------------------------------------------------------------------
+
+    def collapse_penalty(self, student_projected: torch.Tensor) -> torch.Tensor:
+        """
+        EMA-based collapse penalty.
+
+        Tracks a running mean (EMA) of the student projection across batches.
+        When the current projection is very similar to this running mean, the
+        student representations have collapsed — all inputs map to nearly the
+        same point.  The penalty is the excess cosine similarity above a safe
+        threshold (0.9), which is zero when representations are diverse and
+        positive when they collapse.
+
+        This operates in-place on self._student_proj_ema and should only be
+        called during training (not evaluation).
+        """
+        with torch.no_grad():
+            proj_detached = student_projected.detach()
+            if self._student_proj_ema is None:
+                self._student_proj_ema = proj_detached.clone()
+            else:
+                self._student_proj_ema = (
+                    self._ema_decay * self._student_proj_ema
+                    + (1.0 - self._ema_decay) * proj_detached
+                )
+            # Normalise EMA so cosine similarity is well-defined
+            ema_norm = F.normalize(self._student_proj_ema, p=2, dim=-1)
+
+        collapse_sim = F.cosine_similarity(
+            student_projected, ema_norm.detach(), dim=-1
+        ).mean()
+
+        # Only penalise similarity above 0.9 (the safe diversity threshold)
+        return torch.clamp(collapse_sim - 0.9, min=0.0)
 
     @staticmethod
     def representation_distillation_loss(
@@ -655,9 +703,15 @@ class PolymathDistillationTrainer:
             for proj in self.teacher_projs.values():
                 proj.train()
 
+            # Reset EMA at the start of each epoch so the collapse detector
+            # adapts to the current representation distribution rather than
+            # carrying stale state from a previous epoch's distribution.
+            self._student_proj_ema = None
+
             epoch_distill = 0.0
             epoch_lm = 0.0
             epoch_total = 0.0
+            epoch_collapse = 0.0
             num_batches = 0
 
             progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}")
@@ -700,9 +754,15 @@ class PolymathDistillationTrainer:
                 distill_loss = distill_loss / len(teacher_reprs)
 
                 lm_loss = student_outputs.loss
+
+                # Collapse penalty — penalise if all student projections are
+                # converging to the same point in the projection space.
+                collapse_loss = self.collapse_penalty(student_projected)
+
                 total_loss = (
                     self.config.alpha_distill * distill_loss
                     + self.config.alpha_lm * lm_loss
+                    + self.config.alpha_collapse * collapse_loss
                 )
 
                 # Guard against NaN/Inf losses — common on MPS when
@@ -734,13 +794,15 @@ class PolymathDistillationTrainer:
 
                 epoch_distill += distill_loss.item()
                 epoch_lm += lm_loss.item()
+                epoch_collapse += collapse_loss.item()
                 epoch_total += total_loss.item()
                 num_batches += 1
 
                 progress_bar.set_postfix(
                     {
                         "d_loss": f"{distill_loss.item():.4f}",
-                        "lm_loss": f"{lm_loss.item():.4f}",
+                        "lm": f"{lm_loss.item():.4f}",
+                        "col": f"{collapse_loss.item():.4f}",
                         "total": f"{total_loss.item():.4f}",
                         "lr": f"{scheduler.get_last_lr()[0]:.2e}",
                     }
@@ -748,10 +810,11 @@ class PolymathDistillationTrainer:
 
             n = max(num_batches, 1)
             self.logger.info(
-                "Epoch %s | train distill=%.4f  lm=%.4f  total=%.4f",
+                "Epoch %s | train distill=%.4f  lm=%.4f  collapse=%.4f  total=%.4f",
                 epoch + 1,
                 epoch_distill / n,
                 epoch_lm / n,
+                epoch_collapse / n,
                 epoch_total / n,
             )
 

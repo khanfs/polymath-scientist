@@ -415,10 +415,10 @@ class QuantitativeEvaluator:
             },
             "chem": {
                 "model": BertModel.from_pretrained(
-                    "seyonec/ChemBERTa-zinc-base-v1"
+                    "m3rg-iitd/matscibert"
                 ).eval().to(self.device),
                 "tokenizer": AutoTokenizer.from_pretrained(
-                    "seyonec/ChemBERTa-zinc-base-v1", use_fast=False
+                    "m3rg-iitd/matscibert", use_fast=False
                 ),
             },
             "phys": {
