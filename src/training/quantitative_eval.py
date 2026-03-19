@@ -11,7 +11,7 @@ This module answers three research questions:
    test split topic labels.
 
 2. REPRESENTATION ALIGNMENT — Did distillation transfer domain knowledge?
-   For each teacher (BioBERT, ChemBERTa, SciBERT), computes the cosine
+   For each teacher (BioBERT, MatSciBERT, PhysBERT), computes the cosine
    similarity between the distilled student's projected representation and
    the teacher's projected representation on test-split texts.
    Higher alignment = more knowledge transferred.
@@ -423,10 +423,10 @@ class QuantitativeEvaluator:
             },
             "phys": {
                 "model": BertModel.from_pretrained(
-                    "allenai/scibert_scivocab_uncased"
+                    "thellert/physbert"
                 ).eval().to(self.device),
                 "tokenizer": AutoTokenizer.from_pretrained(
-                    "allenai/scibert_scivocab_uncased", use_fast=False
+                    "thellert/physbert", use_fast=False
                 ),
             },
         }

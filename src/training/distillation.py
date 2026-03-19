@@ -13,7 +13,7 @@ It is designed to be imported from scripts rather than executed directly.
 ---
 Architecture note
 -----------------
-The student (DistilGPT-2) and teachers (BioBERT, ChemBERTa, SciBERT) share a
+The student (DistilGPT-2) and teachers (BioBERT, MatSciBERT, PhysBERT) share a
 nominal hidden size of 768, but their representations live in incompatible
 embedding spaces.  Directly computing MSE or cosine distance between raw
 pooled vectors conflates architectural differences with semantic proximity
@@ -243,15 +243,19 @@ class PolymathDistillationTrainer:
 
         Teacher-to-domain mapping
         -------------------------
-        bio  → BioBERT v1.2   (biomedical natural language; biology domain)
-        chem → MatSciBERT     (materials science / chemistry natural language)
-        phys → SciBERT        (general scientific text; physics-domain proxy)
+        bio  → BioBERT v1.2  (dmis-lab/biobert-base-cased-v1.2)
+                              Pre-trained on PubMed and PMC biomedical papers.
+        chem → MatSciBERT    (m3rg-iitd/matscibert)
+                              Pre-trained on materials science literature.
+                              Replaces ChemBERTa, which was trained on SMILES
+                              molecular structure notation rather than prose.
+        phys → PhysBERT      (thellert/physbert)
+                              Pre-trained on arXiv physics papers.
+                              Replaces SciBERT, which covered all scientific
+                              domains rather than physics specifically.
 
-        ChemBERTa was replaced with MatSciBERT (m3rg-iitd/matscibert) because
-        ChemBERTa is pre-trained on SMILES molecular structure notation, not
-        natural language chemistry text.  MatSciBERT is trained on materials
-        science literature (natural language), making it far more compatible
-        with the prose-based training corpus.
+        All three teachers are now domain-specific natural language models,
+        each matched to its domain's primary literature source.
         """
         self.logger.info("Loading teacher models and tokenizers...")
 
@@ -280,10 +284,10 @@ class PolymathDistillationTrainer:
             },
             "phys": {
                 "model": BertModel.from_pretrained(
-                    "allenai/scibert_scivocab_uncased"
+                    "thellert/physbert"
                 ).eval(),
                 "tokenizer": AutoTokenizer.from_pretrained(
-                    "allenai/scibert_scivocab_uncased",
+                    "thellert/physbert",
                     use_fast=False,
                 ),
             },
