@@ -58,8 +58,8 @@ Scientific Data Sources
    Multi-Teacher Knowledge Distillation
         ^           ^           ^
         |           |           |
-     BioBERT    ChemBERTa    SciBERT
-    (Biology)   (Chemistry)  (Scientific Text)
+     BioBERT    MatSciBERT   PhysBERT
+    (Biology)  (Mat. Sci.)  (Physics)
 ```
 
 The student model is shaped by two complementary learning signals: data-driven adaptation on multidisciplinary scientific text, and teacher-guided distillation from domain-specialised models.
@@ -86,7 +86,7 @@ The data pipeline is designed to:
 * generate train / validation / test splits
 * support lightweight sampling modes for rapid experimentation
 
-**The pipeline is:**
+### The pipeline is:
 
 ```text
 raw datasets
@@ -128,21 +128,27 @@ DistilGPT2 is used as the student model. It provides a lightweight autoregressiv
 
 Three specialised teacher models provide domain expertise during **knowledge distillation** to transfer domain-specific knowledge to the student model.
 
-| Domain          | Teacher Model |
-| --------------- | ------------- |
-| Biology         | BioBERT       |
-| Chemistry       | ChemBERTa     |
-| Scientific text | SciBERT       |
+| Domain                          | Teacher Model |
+| ------------------------------- | ------------- |
+| Biology                         | BioBERT       |
+| Chemistry / Materials Science   | MatSciBERT    |
+| Physics                         | PhysBERT      |
+
+Each teacher was selected for alignment with the prose-based training corpus. BioBERT v1.2 is pre-trained on PubMed and PubMed Central biomedical text. MatSciBERT is trained on materials science literature in natural language, making it a better fit than ChemBERTa (which used SMILES molecular notation) for chemistry concepts expressed as prose. PhysBERT, pre-trained on arXiv physics papers, replaces the domain-agnostic SciBERT and provides physics-specific representations grounded in the same literature that forms part of the training corpus.
 
 These teacher models provide structured representations and domain-specific contextual knowledge that are transferred into the shared student model.
 
 ## Knowledge Distillation
 
-The student model learns by minimizing a combined loss:
+The student model learns by minimising a combined loss:
 
 * **Distillation loss**: Aligns student predictions with teacher model outputs.
 
 * **Language modelling loss**: Helps the student maintain coherent text generation.
+
+### Collapse Detection
+
+During distillation, projection heads were observed to converge to near-constant outputs (cosine similarity ~0.999 across all inputs) - a failure mode where the shared projection space loses discriminative structure. To address this, an EMA (exponential moving average) collapse penalty is applied during training. A running mean of the student projection is tracked across batches, and a penalty term is added to the loss when the current projection is too similar to that mean. This mechanism works with batch_size=1 and directly targets representation collapse in the shared projection space.
 
 These teacher models provide structured representations and domain-specific contextual knowledge that are transferred into the shared student model.
 
@@ -203,6 +209,7 @@ This repository is an active research prototype.
 * train / validation / test split generation
 * student model training pipeline
 * multi-teacher distillation framework
+* EMA-based collapse detection and penalty for projection heads
 * compatibility fixes for evolving transformer and dataset APIs
 
 ### In progress
