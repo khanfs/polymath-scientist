@@ -224,7 +224,7 @@ pip install -r requirements.txt
 python scripts/run_end_to_end.py
 ```
 
-## Project Goal
+## Project Goal
 
 The long-term aim of this project is to explore the development of AI systems capable of more integrated scientific reasoning across domains.
 Potential future applications include:
