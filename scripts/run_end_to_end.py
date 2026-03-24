@@ -222,7 +222,10 @@ def stage_distillation(sample_mode: bool, resume_epoch: int = 0) -> None:
 
     config = DistillationConfig(
         base_path=PROJECT_ROOT,
-        max_length=512,
+        # max_length=256 during distillation (vs 512 in training) to reduce
+        # memory pressure from three concurrent teacher forward passes on MPS.
+        # This prevents kernel panics from memory exhaustion.
+        max_length=128 if sample_mode else 256,
         batch_size=1,
         learning_rate=2e-5,
         epochs=1 if sample_mode else 3,
