@@ -606,10 +606,13 @@ class PolymathDistillationTrainer:
                 student_tokenizer=student_tokenizer,
             )
 
+            labels = input_ids.clone()
+            labels[attention_mask == 0] = -100
+
             student_outputs = student_model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                labels=input_ids,
+                labels=labels,
                 output_hidden_states=True,
             )
 
@@ -769,11 +772,18 @@ class PolymathDistillationTrainer:
                     student_tokenizer=student_tokenizer,
                 )
 
-                # Student forward pass
+                # Student forward pass.
+                # Mask padding positions in labels to -100 so they are
+                # excluded from the LM loss.  Without this, pad tokens
+                # (which share the eos_token ID in DistilGPT-2) contribute
+                # undefined loss values that accumulate into NaN.
+                labels = input_ids.clone()
+                labels[attention_mask == 0] = -100
+
                 student_outputs = student_model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
-                    labels=input_ids,
+                    labels=labels,
                     output_hidden_states=True,
                 )
 
