@@ -732,6 +732,22 @@ class PolymathDistillationTrainer:
             epoch_total = 0.0
             epoch_collapse = 0.0
             num_batches = 0
+            nan_batches = 0
+
+            # Maintain a rolling weight snapshot so we can recover if NaN
+            # propagates into the model weights before being detected.
+            # Updated every 500 steps from the last known-good state.
+            weight_snapshot = {
+                k: v.clone().cpu()
+                for k, v in student_model.state_dict().items()
+            }
+            proj_snapshot = {
+                "student": self.student_proj.state_dict(),
+                "teachers": {
+                    n: p.state_dict() for n, p in self.teacher_projs.items()
+                },
+            }
+            snapshot_step = 0
 
             progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}")
 
@@ -820,6 +836,46 @@ class PolymathDistillationTrainer:
                 optimizer.step()
                 scheduler.step()
 
+                # Check for NaN in student weights after the update.
+                # If detected, restore from the last good snapshot.
+                any_nan = any(
+                    p.isnan().any().item()
+                    for p in student_model.parameters()
+                )
+                if any_nan:
+                    nan_batches += 1
+                    self.logger.warning(
+                        "NaN detected in student weights at step %d — "
+                        "restoring from snapshot (step %d).",
+                        num_batches,
+                        snapshot_step,
+                    )
+                    student_model.load_state_dict(
+                        {k: v.to(self.device) for k, v in weight_snapshot.items()}
+                    )
+                    self.student_proj.load_state_dict(proj_snapshot["student"])
+                    for n, p in self.teacher_projs.items():
+                        p.load_state_dict(proj_snapshot["teachers"][n])
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
+
+                # Update snapshot every 500 clean steps.
+                if num_batches > 0 and num_batches % 500 == 0:
+                    weight_snapshot = {
+                        k: v.clone().cpu()
+                        for k, v in student_model.state_dict().items()
+                    }
+                    proj_snapshot = {
+                        "student": {
+                            k: v.clone() for k, v in self.student_proj.state_dict().items()
+                        },
+                        "teachers": {
+                            n: {k: v.clone() for k, v in p.state_dict().items()}
+                            for n, p in self.teacher_projs.items()
+                        },
+                    }
+                    snapshot_step = num_batches
+
                 epoch_distill += distill_loss.item()
                 epoch_lm += lm_loss.item()
                 epoch_collapse += collapse_loss.item()
@@ -838,12 +894,14 @@ class PolymathDistillationTrainer:
 
             n = max(num_batches, 1)
             self.logger.info(
-                "Epoch %s | train distill=%.4f  lm=%.4f  collapse=%.4f  total=%.4f",
+                "Epoch %s | train distill=%.4f  lm=%.4f  collapse=%.4f  total=%.4f  "
+                "nan_skipped=%d",
                 epoch + 1,
                 epoch_distill / n,
                 epoch_lm / n,
                 epoch_collapse / n,
                 epoch_total / n,
+                nan_batches,
             )
 
             # Save per-epoch checkpoint

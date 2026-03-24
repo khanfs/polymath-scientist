@@ -222,16 +222,17 @@ def stage_distillation(sample_mode: bool, resume_epoch: int = 0) -> None:
 
     config = DistillationConfig(
         base_path=PROJECT_ROOT,
-        # max_length=256 during distillation (vs 512 in training) to reduce
-        # memory pressure from three concurrent teacher forward passes on MPS.
-        # This prevents kernel panics from memory exhaustion.
         max_length=128 if sample_mode else 256,
         batch_size=1,
-        learning_rate=2e-5,
+        # Reduced from 2e-5 — rapid distill loss drop (0.53→0.016) caused
+        # gradient explosion and NaN weight corruption on MPS.
+        learning_rate=5e-6,
+        # Tighter gradient clipping to prevent explosion.
+        grad_clip_norm=0.5,
         epochs=1 if sample_mode else 3,
         alpha_distill=1.0,
         alpha_lm=1.0,
-        warmup_steps=10 if sample_mode else 100,
+        warmup_steps=10 if sample_mode else 200,
         student_hidden_size=768,
         teacher_hidden_size=768,
         projection_dim=256,
