@@ -293,10 +293,16 @@ class PolymathDistillationTrainer:
             },
         }
 
+        # Teachers are frozen (eval mode, no gradients).  Run them on CPU to
+        # avoid MPS numerical precision issues that produce NaN on certain
+        # input sequences.  This does not meaningfully slow training since
+        # teacher forward passes are the minority of compute time.
+        cpu = torch.device("cpu")
         for teacher in teachers.values():
-            teacher["model"].to(self.device)
+            teacher["model"].to(cpu)
+            teacher["device"] = cpu
 
-        self.logger.info("Teacher models loaded successfully.")
+        self.logger.info("Teacher models loaded on CPU successfully.")
         return teachers
 
     # ------------------------------------------------------------------
@@ -376,6 +382,7 @@ class PolymathDistillationTrainer:
         input_ids: torch.Tensor,
         student_tokenizer,
         teacher_tokenizer,
+        teacher_bundle: Optional[Dict] = None,
     ) -> Dict[str, torch.Tensor]:
         """Decode student input_ids and re-tokenize for a teacher model."""
         decoded_texts = [
@@ -391,7 +398,9 @@ class PolymathDistillationTrainer:
             max_length=self.config.max_length,
         )
 
-        return {k: v.to(self.device) for k, v in teacher_inputs.items()}
+        # Route to teacher's device (CPU) rather than the student's device (MPS)
+        teacher_device = teacher_bundle.get("device", torch.device("cpu")) if teacher_bundle else torch.device("cpu")
+        return {k: v.to(teacher_device) for k, v in teacher_inputs.items()}
 
     def _compute_teacher_representations(
         self,
@@ -416,6 +425,7 @@ class PolymathDistillationTrainer:
                     input_ids=input_ids,
                     student_tokenizer=student_tokenizer,
                     teacher_tokenizer=teacher_tokenizer,
+                    teacher_bundle=teacher_bundle,
                 )
 
                 outputs = teacher_model(**teacher_inputs)
@@ -423,7 +433,9 @@ class PolymathDistillationTrainer:
                     outputs.last_hidden_state,
                     teacher_inputs["attention_mask"],
                 )
-                teacher_representations[teacher_name] = pooled
+                # Move pooled representation from CPU to the student's device
+                # (MPS) for the distillation loss computation.
+                teacher_representations[teacher_name] = pooled.to(self.device)
 
         return teacher_representations
 
