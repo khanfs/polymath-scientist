@@ -597,6 +597,9 @@ class PolymathDistillationTrainer:
             input_ids = batch["input_ids"].to(self.device)
             attention_mask = batch["attention_mask"].to(self.device)
 
+            if attention_mask.sum() < 2:
+                continue
+
             teacher_reprs = self._compute_teacher_representations(
                 teachers=teachers,
                 input_ids=input_ids,
@@ -736,6 +739,11 @@ class PolymathDistillationTrainer:
                 input_ids = batch["input_ids"].to(self.device)
                 attention_mask = batch["attention_mask"].to(self.device)
 
+                # Skip batches that are entirely padding — these produce
+                # NaN LM loss because all labels get masked to -100.
+                if attention_mask.sum() < 2:
+                    continue
+
                 optimizer.zero_grad(set_to_none=True)
 
                 # Teacher representations (no grad required)
@@ -781,15 +789,19 @@ class PolymathDistillationTrainer:
                     + self.config.alpha_collapse * collapse_loss
                 )
 
-                # Guard against NaN/Inf losses — common on MPS when
-                # representations collapse late in training.  Skip the
-                # backward pass for any bad batch rather than letting
-                # degenerate gradients corrupt the model.
+                # Guard against NaN/Inf losses.
                 if not torch.isfinite(total_loss):
+                    # Log the first few NaN batches with token statistics
+                    # to help diagnose the root cause.
+                    n_real_tokens = attention_mask.sum().item()
+                    n_total_tokens = attention_mask.numel()
                     self.logger.warning(
-                        "Non-finite loss detected (distill=%.4f lm=%.4f) — skipping batch.",
+                        "Non-finite loss (distill=%.4f lm=%.4f) — "
+                        "real_tokens=%d/%d — skipping batch.",
                         distill_loss.item(),
                         lm_loss.item(),
+                        int(n_real_tokens),
+                        n_total_tokens,
                     )
                     optimizer.zero_grad(set_to_none=True)
                     scheduler.step()
