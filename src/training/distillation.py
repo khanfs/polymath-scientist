@@ -500,12 +500,26 @@ class PolymathDistillationTrainer:
         total_steps: int,
     ) -> Tuple[torch.optim.Optimizer, object]:
         """
-        Build an AdamW optimiser covering the student model and all
-        projection heads, plus a cosine-with-warmup LR scheduler.
+        Build an AdamW optimiser covering ONLY the projection heads.
+
+        The student model backbone is frozen during distillation — its weights
+        were already optimised during Stage 2 fine-tuning.  Re-training the
+        full student with distillation gradients causes the LM loss to explode
+        (observed: 3.5 → 7-8) as the distillation signal overwrites the
+        language modelling capability.
+
+        Only the projection heads need to learn: they map the student's fixed
+        representations into the shared projection space for alignment with
+        each teacher.
         """
+        # Freeze the student backbone entirely.
+        for param in student_model.parameters():
+            param.requires_grad = False
+        student_model.eval()
+
+        # Only the projection heads are trainable.
         params = (
-            list(student_model.parameters())
-            + list(self.student_proj.parameters())
+            list(self.student_proj.parameters())
             + [p for proj in self.teacher_projs.values() for p in proj.parameters()]
         )
 
@@ -720,7 +734,9 @@ class PolymathDistillationTrainer:
         for epoch in range(start_epoch, self.config.epochs):
             self.logger.info("Epoch %s/%s", epoch + 1, self.config.epochs)
 
-            student_model.train()
+            # Student backbone stays in eval mode — it is frozen.
+            # Only projection heads are set to train mode.
+            student_model.eval()
             self.student_proj.train()
             for proj in self.teacher_projs.values():
                 proj.train()
@@ -737,17 +753,17 @@ class PolymathDistillationTrainer:
             num_batches = 0
             nan_batches = 0
 
-            # Maintain a rolling weight snapshot so we can recover if NaN
-            # propagates into the model weights before being detected.
-            # Updated every 500 steps from the last known-good state.
-            weight_snapshot = {
-                k: v.clone().cpu()
-                for k, v in student_model.state_dict().items()
-            }
+            # Maintain a rolling snapshot of projection head weights for
+            # NaN recovery.  Student backbone is frozen so only heads need
+            # snapshotting.
+            weight_snapshot = {}   # unused — kept for API compatibility
             proj_snapshot = {
-                "student": self.student_proj.state_dict(),
+                "student": {
+                    k: v.clone() for k, v in self.student_proj.state_dict().items()
+                },
                 "teachers": {
-                    n: p.state_dict() for n, p in self.teacher_projs.items()
+                    n: {k: v.clone() for k, v in p.state_dict().items()}
+                    for n, p in self.teacher_projs.items()
                 },
             }
             snapshot_step = 0
@@ -803,15 +819,15 @@ class PolymathDistillationTrainer:
                     )
                 distill_loss = distill_loss / len(teacher_reprs)
 
-                lm_loss = student_outputs.loss
+                # LM loss is not used — student backbone is frozen.
+                # Only the projection heads are trained, so only the
+                # distillation alignment loss and collapse penalty matter.
+                lm_loss = torch.tensor(0.0, device=self.device)
 
-                # Collapse penalty — penalise if all student projections are
-                # converging to the same point in the projection space.
                 collapse_loss = self.collapse_penalty(student_projected)
 
                 total_loss = (
                     self.config.alpha_distill * distill_loss
-                    + self.config.alpha_lm * lm_loss
                     + self.config.alpha_collapse * collapse_loss
                 )
 
@@ -835,22 +851,22 @@ class PolymathDistillationTrainer:
 
                 total_loss.backward()
 
-                # Clip gradients across student model and all projection heads.
-                all_params = (
-                    list(student_model.parameters())
-                    + list(self.student_proj.parameters())
+                # Clip gradients — projection heads only (student is frozen).
+                proj_params = (
+                    list(self.student_proj.parameters())
                     + [p for proj in self.teacher_projs.values() for p in proj.parameters()]
                 )
-                torch.nn.utils.clip_grad_norm_(all_params, self.config.grad_clip_norm)
+                torch.nn.utils.clip_grad_norm_(proj_params, self.config.grad_clip_norm)
 
                 optimizer.step()
                 scheduler.step()
 
-                # Check for NaN in student weights after the update.
-                # If detected, restore from the last good snapshot.
+                # Check for NaN in projection head weights after the update.
+                # Student backbone is frozen so only heads can go NaN.
                 any_nan = any(
                     p.isnan().any().item()
-                    for p in student_model.parameters()
+                    for p in list(self.student_proj.parameters())
+                    + [p for proj in self.teacher_projs.values() for p in proj.parameters()]
                 )
                 if any_nan:
                     nan_batches += 1
@@ -860,21 +876,15 @@ class PolymathDistillationTrainer:
                         num_batches,
                         snapshot_step,
                     )
-                    student_model.load_state_dict(
-                        {k: v.to(self.device) for k, v in weight_snapshot.items()}
-                    )
+                    # Only restore projection heads (student backbone is frozen).
                     self.student_proj.load_state_dict(proj_snapshot["student"])
                     for n, p in self.teacher_projs.items():
                         p.load_state_dict(proj_snapshot["teachers"][n])
                     optimizer.zero_grad(set_to_none=True)
                     continue
 
-                # Update snapshot every 500 clean steps.
+                # Update projection head snapshot every 500 clean steps.
                 if num_batches > 0 and num_batches % 500 == 0:
-                    weight_snapshot = {
-                        k: v.clone().cpu()
-                        for k, v in student_model.state_dict().items()
-                    }
                     proj_snapshot = {
                         "student": {
                             k: v.clone() for k, v in self.student_proj.state_dict().items()
@@ -948,8 +958,8 @@ class PolymathDistillationTrainer:
                         best_ckpt,
                     )
 
-                # Restore training mode after evaluation
-                student_model.train()
+                # Restore training mode for projection heads only.
+                # Student stays in eval (frozen).
                 self.student_proj.train()
                 for proj in self.teacher_projs.values():
                     proj.train()
