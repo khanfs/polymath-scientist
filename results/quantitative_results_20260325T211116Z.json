@@ -1,0 +1,68 @@
+{
+  "timestamp_utc": "2026-03-25T21:11:16.565428+00:00",
+  "device": "mps",
+  "n_test_texts": 6000,
+  "domain_counts": {
+    "biology": 2000,
+    "chemistry": 1939,
+    "other": 143,
+    "physics": 1918
+  },
+  "perplexity": {
+    "baseline_distilgpt2": {
+      "biology": 56.904,
+      "chemistry": 56.723,
+      "other": 36.13,
+      "physics": 53.2,
+      "overall": 55.037
+    },
+    "distilled_polymath": {
+      "biology": 28.287,
+      "chemistry": 33.603,
+      "other": 34.077,
+      "physics": 28.601,
+      "overall": 30.145
+    },
+    "improvement": {
+      "biology": 28.617,
+      "chemistry": 23.12,
+      "other": 2.053,
+      "physics": 24.599,
+      "overall": 24.892
+    }
+  },
+  "representation_alignment": {
+    "overall_alignment": {
+      "bio": 0.9444,
+      "chem": 0.9581,
+      "phys": 0.9708
+    },
+    "domain_alignment": {
+      "biology": {
+        "bio": 0.976,
+        "chem": 0.9725,
+        "phys": 0.9812
+      },
+      "chemistry": {
+        "bio": 0.9195,
+        "chem": 0.9415,
+        "phys": 0.9644
+      },
+      "other": {
+        "bio": 0.8168,
+        "chem": 0.9275,
+        "phys": 0.9422
+      },
+      "physics": {
+        "bio": 0.9462,
+        "chem": 0.9623,
+        "phys": 0.9686
+      }
+    },
+    "domain_specificity": {
+      "biology": 0.35,
+      "chemistry": 0.1903,
+      "physics": 0.4833
+    }
+  }
+}
