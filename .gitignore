@@ -20,7 +20,6 @@ data/interim/
 data/processed/
 data/splits/
 processed_data/
-results/
 outputs/
 temp/
 analysis/
