@@ -102,10 +102,14 @@ class DistillationConfig:
     alpha_distill: float = 1.0
     alpha_lm: float = 1.0
     # Collapse penalty weight.  Penalises the student projection for converging
-    # to a near-constant output (representation collapse), which was observed
-    # when using BioBERT and SciBERT teachers (cosine sim ≈ 0.999 for all texts).
-    # Set to 0.0 to disable.
-    alpha_collapse: float = 0.1
+    # to a near-constant output (representation collapse), observed as cosine
+    # sim ≈ 0.999 across all domains.  Increased from 0.1 to 1.0 to provide
+    # a stronger diversity signal.  Set to 0.0 to disable.
+    alpha_collapse: float = 1.0
+    # Collapse threshold — only penalise similarity above this value.
+    # Lowered from 0.9 to 0.7 so the penalty activates earlier, before
+    # representations fully collapse.
+    collapse_threshold: float = 0.7
 
     # Projection head dimensions
     # DistilGPT-2 and BERT-style teachers both have hidden_size=768, but
@@ -171,12 +175,24 @@ class PolymathDistillationTrainer:
 
         self.logger = self._setup_logger()
 
-        # Projection heads — initialised here so they can be moved to device
-        # and included in the optimiser before training begins.
-        self.student_proj = ProjectionHead(
-            self.config.student_hidden_size,
-            self.config.projection_dim,
-        ).to(self.device)
+        # Per-domain student projection heads (one per teacher).
+        #
+        # Previously a single shared student projection head was used for all
+        # teachers.  This caused collapse — the single head was pulled toward
+        # the mean of all three teacher spaces simultaneously, producing a
+        # near-constant output that satisfied none of them well.
+        #
+        # With per-domain heads, each head learns an independent mapping from
+        # the student's representation space into one teacher's domain space.
+        # The bio head learns to align with BioBERT, the chem head with
+        # MatSciBERT, and the phys head with PhysBERT.
+        self.student_projs: Dict[str, ProjectionHead] = {
+            name: ProjectionHead(
+                self.config.student_hidden_size,
+                self.config.projection_dim,
+            ).to(self.device)
+            for name in self.TEACHER_NAMES
+        }
 
         self.teacher_projs: Dict[str, ProjectionHead] = {
             name: ProjectionHead(
@@ -186,11 +202,12 @@ class PolymathDistillationTrainer:
             for name in self.TEACHER_NAMES
         }
 
-        # EMA of the student projection, used by the collapse penalty.
-        # Tracks the running mean of student projected representations across
-        # batches.  If all batches produce nearly the same projection, the
-        # cosine similarity to this EMA will be high — that's the collapse signal.
-        self._student_proj_ema: Optional[torch.Tensor] = None
+        # Per-domain EMA of student projections, used by the collapse penalty.
+        # One EMA per domain tracks whether that domain's projection head
+        # is collapsing independently of the others.
+        self._student_proj_emas: Dict[str, Optional[torch.Tensor]] = {
+            name: None for name in self.TEACHER_NAMES
+        }
         self._ema_decay: float = 0.995
 
     # ------------------------------------------------------------------
@@ -443,38 +460,40 @@ class PolymathDistillationTrainer:
     # Loss
     # ------------------------------------------------------------------
 
-    def collapse_penalty(self, student_projected: torch.Tensor) -> torch.Tensor:
+    def collapse_penalty(
+        self,
+        student_projected: torch.Tensor,
+        domain: str,
+    ) -> torch.Tensor:
         """
-        EMA-based collapse penalty.
+        Per-domain EMA-based collapse penalty.
 
-        Tracks a running mean (EMA) of the student projection across batches.
-        When the current projection is very similar to this running mean, the
-        student representations have collapsed — all inputs map to nearly the
-        same point.  The penalty is the excess cosine similarity above a safe
-        threshold (0.9), which is zero when representations are diverse and
-        positive when they collapse.
+        Tracks a running mean (EMA) of the student projection for a specific
+        domain across batches.  When the current projection is very similar to
+        this running mean, representations have collapsed for that domain.
 
-        This operates in-place on self._student_proj_ema and should only be
+        Using per-domain EMAs prevents the penalty from being diluted by
+        averaging across domains that are at different stages of collapse.
+
+        This operates in-place on self._student_proj_emas and should only be
         called during training (not evaluation).
         """
         with torch.no_grad():
             proj_detached = student_projected.detach()
-            if self._student_proj_ema is None:
-                self._student_proj_ema = proj_detached.clone()
+            if self._student_proj_emas[domain] is None:
+                self._student_proj_emas[domain] = proj_detached.clone()
             else:
-                self._student_proj_ema = (
-                    self._ema_decay * self._student_proj_ema
+                self._student_proj_emas[domain] = (
+                    self._ema_decay * self._student_proj_emas[domain]
                     + (1.0 - self._ema_decay) * proj_detached
                 )
-            # Normalise EMA so cosine similarity is well-defined
-            ema_norm = F.normalize(self._student_proj_ema, p=2, dim=-1)
+            ema_norm = F.normalize(self._student_proj_emas[domain], p=2, dim=-1)
 
         collapse_sim = F.cosine_similarity(
             student_projected, ema_norm.detach(), dim=-1
         ).mean()
 
-        # Only penalise similarity above 0.9 (the safe diversity threshold)
-        return torch.clamp(collapse_sim - 0.9, min=0.0)
+        return torch.clamp(collapse_sim - self.config.collapse_threshold, min=0.0)
 
     @staticmethod
     def representation_distillation_loss(
@@ -518,8 +537,9 @@ class PolymathDistillationTrainer:
         student_model.eval()
 
         # Only the projection heads are trainable.
+        # Include all per-domain student projection heads.
         params = (
-            list(self.student_proj.parameters())
+            [p for proj in self.student_projs.values() for p in proj.parameters()]
             + [p for proj in self.teacher_projs.values() for p in proj.parameters()]
         )
 
@@ -550,7 +570,10 @@ class PolymathDistillationTrainer:
         student_tokenizer.save_pretrained(path)
 
         proj_state = {
-            "student_proj": self.student_proj.state_dict(),
+            "student_projs": {
+                name: proj.state_dict()
+                for name, proj in self.student_projs.items()
+            },
             "teacher_projs": {
                 name: proj.state_dict()
                 for name, proj in self.teacher_projs.items()
@@ -571,7 +594,22 @@ class PolymathDistillationTrainer:
             return
 
         state = torch.load(proj_path, map_location=self.device)
-        self.student_proj.load_state_dict(state["student_proj"])
+
+        # Load per-domain student projection heads.
+        if "student_projs" in state:
+            for name, proj in self.student_projs.items():
+                if name in state["student_projs"]:
+                    proj.load_state_dict(state["student_projs"][name])
+                else:
+                    self.logger.warning("No saved state for student proj '%s'.", name)
+        elif "student_proj" in state:
+            # Legacy: single shared student proj — load into all domain heads
+            self.logger.warning(
+                "Loading legacy single student_proj into all domain heads."
+            )
+            for proj in self.student_projs.values():
+                proj.load_state_dict(state["student_proj"])
+
         for name, proj in self.teacher_projs.items():
             if name in state["teacher_projs"]:
                 proj.load_state_dict(state["teacher_projs"][name])
@@ -598,7 +636,8 @@ class PolymathDistillationTrainer:
         Returns avg_distill_loss, avg_lm_loss, avg_total_loss.
         """
         student_model.eval()
-        self.student_proj.eval()
+        for proj in self.student_projs.values():
+            proj.eval()
         for proj in self.teacher_projs.values():
             proj.eval()
 
@@ -632,14 +671,12 @@ class PolymathDistillationTrainer:
 
             student_hidden = student_outputs.hidden_states[-1]
             student_repr = self.masked_mean_pool(student_hidden, attention_mask)
-            student_projected = self.student_proj(student_repr)
 
             distill_loss = torch.tensor(0.0, device=self.device)
             for teacher_name, teacher_repr in teacher_reprs.items():
-                teacher_projected = self.teacher_projs[teacher_name](teacher_repr)
-                distill_loss += self.representation_distillation_loss(
-                    student_projected, teacher_projected
-                )
+                s_proj = self.student_projs[teacher_name](student_repr)
+                t_proj = self.teacher_projs[teacher_name](teacher_repr)
+                distill_loss += self.representation_distillation_loss(s_proj, t_proj)
             distill_loss = distill_loss / len(teacher_reprs)
 
             lm_loss = student_outputs.loss
@@ -735,16 +772,17 @@ class PolymathDistillationTrainer:
             self.logger.info("Epoch %s/%s", epoch + 1, self.config.epochs)
 
             # Student backbone stays in eval mode — it is frozen.
-            # Only projection heads are set to train mode.
+            # Set all per-domain student projection heads to train mode.
             student_model.eval()
-            self.student_proj.train()
+            for proj in self.student_projs.values():
+                proj.train()
             for proj in self.teacher_projs.values():
                 proj.train()
 
             # Reset EMA at the start of each epoch so the collapse detector
             # adapts to the current representation distribution rather than
             # carrying stale state from a previous epoch's distribution.
-            self._student_proj_ema = None
+            self._student_proj_emas = {name: None for name in self.TEACHER_NAMES}
 
             epoch_distill = 0.0
             epoch_lm = 0.0
@@ -758,8 +796,9 @@ class PolymathDistillationTrainer:
             # snapshotting.
             weight_snapshot = {}   # unused — kept for API compatibility
             proj_snapshot = {
-                "student": {
-                    k: v.clone() for k, v in self.student_proj.state_dict().items()
+                "student_projs": {
+                    name: {k: v.clone() for k, v in proj.state_dict().items()}
+                    for name, proj in self.student_projs.items()
                 },
                 "teachers": {
                     n: {k: v.clone() for k, v in p.state_dict().items()}
@@ -805,26 +844,28 @@ class PolymathDistillationTrainer:
 
                 student_hidden = student_outputs.hidden_states[-1]
                 student_repr = self.masked_mean_pool(student_hidden, attention_mask)
-                student_projected = self.student_proj(student_repr)
 
-                # Per-teacher distillation loss (averaged across teachers).
-                # Computing a separate loss per teacher preserves each domain's
-                # gradient signal independently, rather than letting teachers
-                # cancel each other out through representation averaging.
+                # Per-domain distillation: each domain uses its own student
+                # projection head, so each alignment is learned independently.
+                # This prevents one teacher from dominating the shared projection
+                # space and causing collapse.
                 distill_loss = torch.tensor(0.0, device=self.device)
+                collapse_loss = torch.tensor(0.0, device=self.device)
+
                 for teacher_name, teacher_repr in teacher_reprs.items():
-                    teacher_projected = self.teacher_projs[teacher_name](teacher_repr)
-                    distill_loss += self.representation_distillation_loss(
-                        student_projected, teacher_projected
-                    )
+                    # Project student repr through this domain's head
+                    s_proj = self.student_projs[teacher_name](student_repr)
+                    # Project teacher repr through the teacher's head
+                    t_proj = self.teacher_projs[teacher_name](teacher_repr)
+
+                    distill_loss += self.representation_distillation_loss(s_proj, t_proj)
+                    collapse_loss += self.collapse_penalty(s_proj, domain=teacher_name)
+
                 distill_loss = distill_loss / len(teacher_reprs)
+                collapse_loss = collapse_loss / len(teacher_reprs)
 
                 # LM loss is not used — student backbone is frozen.
-                # Only the projection heads are trained, so only the
-                # distillation alignment loss and collapse penalty matter.
                 lm_loss = torch.tensor(0.0, device=self.device)
-
-                collapse_loss = self.collapse_penalty(student_projected)
 
                 total_loss = (
                     self.config.alpha_distill * distill_loss
@@ -853,7 +894,7 @@ class PolymathDistillationTrainer:
 
                 # Clip gradients — projection heads only (student is frozen).
                 proj_params = (
-                    list(self.student_proj.parameters())
+                    [p for proj in self.student_projs.values() for p in proj.parameters()]
                     + [p for proj in self.teacher_projs.values() for p in proj.parameters()]
                 )
                 torch.nn.utils.clip_grad_norm_(proj_params, self.config.grad_clip_norm)
@@ -862,11 +903,12 @@ class PolymathDistillationTrainer:
                 scheduler.step()
 
                 # Check for NaN in projection head weights after the update.
-                # Student backbone is frozen so only heads can go NaN.
                 any_nan = any(
                     p.isnan().any().item()
-                    for p in list(self.student_proj.parameters())
-                    + [p for proj in self.teacher_projs.values() for p in proj.parameters()]
+                    for p in (
+                        [p for proj in self.student_projs.values() for p in proj.parameters()]
+                        + [p for proj in self.teacher_projs.values() for p in proj.parameters()]
+                    )
                 )
                 if any_nan:
                     nan_batches += 1
@@ -877,7 +919,8 @@ class PolymathDistillationTrainer:
                         snapshot_step,
                     )
                     # Only restore projection heads (student backbone is frozen).
-                    self.student_proj.load_state_dict(proj_snapshot["student"])
+                    for name, proj in self.student_projs.items():
+                        proj.load_state_dict(proj_snapshot["student_projs"][name])
                     for n, p in self.teacher_projs.items():
                         p.load_state_dict(proj_snapshot["teachers"][n])
                     optimizer.zero_grad(set_to_none=True)
@@ -886,8 +929,9 @@ class PolymathDistillationTrainer:
                 # Update projection head snapshot every 500 clean steps.
                 if num_batches > 0 and num_batches % 500 == 0:
                     proj_snapshot = {
-                        "student": {
-                            k: v.clone() for k, v in self.student_proj.state_dict().items()
+                        "student_projs": {
+                            name: {k: v.clone() for k, v in proj.state_dict().items()}
+                            for name, proj in self.student_projs.items()
                         },
                         "teachers": {
                             n: {k: v.clone() for k, v in p.state_dict().items()}
@@ -958,9 +1002,10 @@ class PolymathDistillationTrainer:
                         best_ckpt,
                     )
 
-                # Restore training mode for projection heads only.
+                # Restore training mode for all projection heads.
                 # Student stays in eval (frozen).
-                self.student_proj.train()
+                for proj in self.student_projs.values():
+                    proj.train()
                 for proj in self.teacher_projs.values():
                     proj.train()
 

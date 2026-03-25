@@ -204,7 +204,7 @@ def compute_perplexity_by_domain(
 def compute_alignment_scores(
     student_model,
     student_tokenizer,
-    student_proj: ProjectionHead,
+    student_projs: Dict[str, ProjectionHead],
     teachers: Dict[str, Dict[str, Any]],
     teacher_projs: Dict[str, ProjectionHead],
     texts: List[str],
@@ -224,7 +224,8 @@ def compute_alignment_scores(
     device = torch.device(config.device)
 
     student_model.eval()
-    student_proj.eval()
+    for sp in student_projs.values():
+        sp.eval()
     for proj in teacher_projs.values():
         proj.eval()
 
@@ -269,7 +270,8 @@ def compute_alignment_scores(
         )
         s_hidden = s_out.hidden_states[-1]
         s_repr = masked_mean_pool(s_hidden, s_mask)
-        s_proj = student_proj(s_repr)   # [1, proj_dim], L2-normalised
+        # Use domain-specific student projection for each teacher
+        # (computed per-teacher inside the inner loop below)
 
         # Teacher representations
         decoded = student_tokenizer.decode(s_ids[0], skip_special_tokens=True)
@@ -290,7 +292,10 @@ def compute_alignment_scores(
 
             t_out = t_model(input_ids=t_ids, attention_mask=t_mask)
             t_repr = masked_mean_pool(t_out.last_hidden_state, t_mask)
-            t_proj = teacher_projs[t_name](t_repr)  # [1, proj_dim], L2-normalised
+            t_proj = teacher_projs[t_name](t_repr)
+
+            # Use this domain's dedicated student projection head
+            s_proj = student_projs[t_name](s_repr)
 
             sim = F.cosine_similarity(s_proj, t_proj, dim=-1).item()
             all_sims[t_name].append(sim)
@@ -385,10 +390,24 @@ class QuantitativeEvaluator:
 
         state = torch.load(proj_path, map_location=self.device)
 
-        student_proj = ProjectionHead(
-            self.config.student_hidden_size, self.config.projection_dim
-        ).to(self.device)
-        student_proj.load_state_dict(state["student_proj"])
+        # Load per-domain student projection heads
+        teacher_names = ["bio", "chem", "phys"]
+        student_projs = {}
+        if "student_projs" in state:
+            for name, proj_state in state["student_projs"].items():
+                proj = ProjectionHead(
+                    self.config.student_hidden_size, self.config.projection_dim
+                ).to(self.device)
+                proj.load_state_dict(proj_state)
+                student_projs[name] = proj
+        elif "student_proj" in state:
+            # Legacy: single head — copy into all domains
+            for name in teacher_names:
+                proj = ProjectionHead(
+                    self.config.student_hidden_size, self.config.projection_dim
+                ).to(self.device)
+                proj.load_state_dict(state["student_proj"])
+                student_projs[name] = proj
 
         teacher_projs = {}
         for name, proj_state in state["teacher_projs"].items():
@@ -399,7 +418,7 @@ class QuantitativeEvaluator:
             teacher_projs[name] = proj
 
         self.logger.info("Loaded projection heads for: %s", list(teacher_projs.keys()))
-        return student_proj, teacher_projs
+        return student_projs, teacher_projs
 
     def _load_teachers(self) -> Dict[str, Dict[str, Any]]:
         """Load teacher models and tokenizers."""
@@ -462,13 +481,13 @@ class QuantitativeEvaluator:
         self.logger.info("=== Metrics 2 & 3: Representation Alignment ===")
 
         dist_tokenizer2, dist_model2 = self._load_distilled_model()
-        student_proj, teacher_projs = self._load_projection_heads()
+        student_projs, teacher_projs = self._load_projection_heads()
         teachers = self._load_teachers()
 
         alignment = compute_alignment_scores(
             student_model=dist_model2,
             student_tokenizer=dist_tokenizer2,
-            student_proj=student_proj,
+            student_projs=student_projs,
             teachers=teachers,
             teacher_projs=teacher_projs,
             texts=texts,
