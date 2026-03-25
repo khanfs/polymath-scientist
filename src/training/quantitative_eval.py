@@ -46,6 +46,12 @@ from transformers import (
     BertModel,
 )
 
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
 from src.training.distillation import (
     DistillationConfig,
     PolymathDistillationTrainer,
@@ -525,6 +531,25 @@ class QuantitativeEvaluator:
         self.logger.info("Saved quantitative results to %s", out_path)
 
         self._print_table(results)
+
+        # Log quantitative results to W&B if a run is active
+        if WANDB_AVAILABLE:
+            try:
+                import wandb as _wandb
+                if _wandb.run is not None:
+                    flat = {}
+                    for domain, ppl in results["perplexity"]["distilled_polymath"].items():
+                        flat[f"eval/perplexity_distilled_{domain}"] = ppl
+                    for domain, ppl in results["perplexity"]["baseline_distilgpt2"].items():
+                        flat[f"eval/perplexity_baseline_{domain}"] = ppl
+                    for t_name, sim in results["representation_alignment"]["overall_alignment"].items():
+                        flat[f"eval/alignment_{t_name}"] = sim
+                    for domain, spec in results["representation_alignment"]["domain_specificity"].items():
+                        flat[f"eval/specificity_{domain}"] = spec
+                    _wandb.log(flat)
+            except Exception:
+                pass
+
         return out_path
 
     def _print_table(self, results: Dict[str, Any]) -> None:

@@ -65,6 +65,12 @@ from transformers import (
     get_cosine_schedule_with_warmup,
 )
 
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -125,6 +131,11 @@ class DistillationConfig:
     # Set to N to resume from checkpoint_epoch_N and skip epochs 1..N.
     # 0 means start from scratch.
     resume_from_epoch: int = 0
+
+    # Experiment tracking
+    use_wandb: bool = True
+    wandb_project: str = "polymath-scientist"
+    wandb_run_name: str = ""   # auto-generated if empty
 
 
 # ---------------------------------------------------------------------------
@@ -721,6 +732,35 @@ class PolymathDistillationTrainer:
         val_dataset      : optional tokenized validation split for best-model
                            tracking and per-epoch diagnostics.
         """
+        # ── Experiment tracking ──────────────────────────────────────────────
+        self._wandb_run = None
+        if self.config.use_wandb and WANDB_AVAILABLE:
+            import wandb as _wandb
+            run_name = self.config.wandb_run_name or None
+            self._wandb_run = _wandb.init(
+                project=self.config.wandb_project,
+                name=run_name,
+                config={
+                    "model": "distilgpt2",
+                    "teachers": ["biobert-v1.2", "matscibert", "physbert_cased"],
+                    "max_length": self.config.max_length,
+                    "batch_size": self.config.batch_size,
+                    "learning_rate": self.config.learning_rate,
+                    "epochs": self.config.epochs,
+                    "alpha_distill": self.config.alpha_distill,
+                    "alpha_collapse": self.config.alpha_collapse,
+                    "collapse_threshold": self.config.collapse_threshold,
+                    "projection_dim": self.config.projection_dim,
+                    "grad_clip_norm": self.config.grad_clip_norm,
+                    "warmup_steps": self.config.warmup_steps,
+                    "architecture": "frozen_backbone_per_domain_heads",
+                },
+                resume="allow",
+            )
+            self.logger.info("W&B run initialised: %s", self._wandb_run.url)
+        elif self.config.use_wandb and not WANDB_AVAILABLE:
+            self.logger.warning("wandb not installed — run: pip install wandb")
+
         train_loader = self.create_dataloader(train_dataset, shuffle=True)
         val_loader = (
             self.create_dataloader(val_dataset, shuffle=False)
@@ -956,6 +996,15 @@ class PolymathDistillationTrainer:
                     }
                 )
 
+                if self._wandb_run is not None and num_batches % 50 == 0:
+                    self._wandb_run.log({
+                        "train/distill_loss": distill_loss.item(),
+                        "train/collapse_loss": collapse_loss.item(),
+                        "train/total_loss": total_loss.item(),
+                        "train/lr": scheduler.get_last_lr()[0],
+                        "train/step": (epoch * len(train_loader)) + num_batches,
+                    })
+
             n = max(num_batches, 1)
             self.logger.info(
                 "Epoch %s | train distill=%.4f  lm=%.4f  collapse=%.4f  total=%.4f  "
@@ -967,6 +1016,15 @@ class PolymathDistillationTrainer:
                 epoch_total / n,
                 nan_batches,
             )
+
+            if self._wandb_run is not None:
+                self._wandb_run.log({
+                    "epoch/train_distill_loss": epoch_distill / n,
+                    "epoch/train_collapse_loss": epoch_collapse / n,
+                    "epoch/train_total_loss": epoch_total / n,
+                    "epoch/nan_skipped": nan_batches,
+                    "epoch": epoch + 1,
+                })
 
             # Save per-epoch checkpoint
             epoch_ckpt = self.model_output_path / f"checkpoint_epoch_{epoch + 1}"
@@ -989,6 +1047,13 @@ class PolymathDistillationTrainer:
                     val_metrics["avg_lm_loss"],
                     val_metrics["avg_total_loss"],
                 )
+
+                if self._wandb_run is not None:
+                    self._wandb_run.log({
+                        "epoch/val_distill_loss": val_metrics["avg_distill_loss"],
+                        "epoch/val_total_loss": val_metrics["avg_total_loss"],
+                        "epoch": epoch + 1,
+                    })
 
                 if val_metrics["avg_total_loss"] < best_val_loss:
                     best_val_loss = val_metrics["avg_total_loss"]
@@ -1014,3 +1079,7 @@ class PolymathDistillationTrainer:
             student_model, student_tokenizer, self.model_output_path, tag="final"
         )
         self.logger.info("Distilled model saved successfully.")
+
+        if self._wandb_run is not None:
+            self._wandb_run.finish()
+            self.logger.info("W&B run finished: %s", self._wandb_run.url)

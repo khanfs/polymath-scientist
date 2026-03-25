@@ -31,5 +31,8 @@ lxml>=5.1.0              # Recommended HTML parser backend for BeautifulSoup
 protobuf>=4.25.0
 sentencepiece>=0.2.0
 
+# Experiment tracking
+wandb>=0.17.0
+
 # Optional — quantisation support on CUDA
 bitsandbytes>=0.43.0
