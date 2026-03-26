@@ -107,15 +107,31 @@ class DistillationConfig:
     # Loss weights
     alpha_distill: float = 1.0
     alpha_lm: float = 1.0
-    # Collapse penalty weight.  Penalises the student projection for converging
-    # to a near-constant output (representation collapse), observed as cosine
-    # sim ≈ 0.999 across all domains.  Increased from 0.1 to 1.0 to provide
-    # a stronger diversity signal.  Set to 0.0 to disable.
-    alpha_collapse: float = 1.0
-    # Collapse threshold — only penalise similarity above this value.
-    # Lowered from 0.9 to 0.7 so the penalty activates earlier, before
-    # representations fully collapse.
-    collapse_threshold: float = 0.7
+
+    # Per-domain collapse penalty weights.
+    # Biology reached 69.5% specificity with alpha=0.1 (shared head) — the
+    # stronger penalty (1.0) overcorrected and dropped it to 35%.  Use a
+    # lighter penalty for bio, stronger for chem/phys which need more diversity.
+    # Format: {teacher_name: weight}  — set to 0.0 to disable for a domain.
+    alpha_collapse_per_domain: dict = None   # set in __post_init__
+
+    # Per-domain collapse thresholds.
+    # Lower threshold = penalty activates earlier (more aggressive diversity).
+    collapse_threshold_per_domain: dict = None   # set in __post_init__
+
+    def __post_init__(self):
+        if self.alpha_collapse_per_domain is None:
+            self.alpha_collapse_per_domain = {
+                "bio":  0.3,   # biology was already diverse — light penalty
+                "chem": 1.5,   # chemistry needs stronger signal
+                "phys": 1.0,   # physics working well at 1.0
+            }
+        if self.collapse_threshold_per_domain is None:
+            self.collapse_threshold_per_domain = {
+                "bio":  0.8,   # less aggressive for biology
+                "chem": 0.6,   # more aggressive for chemistry
+                "phys": 0.7,   # current value working for physics
+            }
 
     # Projection head dimensions
     # DistilGPT-2 and BERT-style teachers both have hidden_size=768, but
@@ -504,7 +520,8 @@ class PolymathDistillationTrainer:
             student_projected, ema_norm.detach(), dim=-1
         ).mean()
 
-        return torch.clamp(collapse_sim - self.config.collapse_threshold, min=0.0)
+        threshold = self.config.collapse_threshold_per_domain.get(domain, 0.7)
+        return torch.clamp(collapse_sim - threshold, min=0.0)
 
     @staticmethod
     def representation_distillation_loss(
@@ -748,8 +765,8 @@ class PolymathDistillationTrainer:
                     "learning_rate": self.config.learning_rate,
                     "epochs": self.config.epochs,
                     "alpha_distill": self.config.alpha_distill,
-                    "alpha_collapse": self.config.alpha_collapse,
-                    "collapse_threshold": self.config.collapse_threshold,
+                    "alpha_collapse_per_domain": self.config.alpha_collapse_per_domain,
+                    "collapse_threshold_per_domain": self.config.collapse_threshold_per_domain,
                     "projection_dim": self.config.projection_dim,
                     "grad_clip_norm": self.config.grad_clip_norm,
                     "warmup_steps": self.config.warmup_steps,
@@ -893,13 +910,19 @@ class PolymathDistillationTrainer:
                 collapse_loss = torch.tensor(0.0, device=self.device)
 
                 for teacher_name, teacher_repr in teacher_reprs.items():
-                    # Project student repr through this domain's head
                     s_proj = self.student_projs[teacher_name](student_repr)
-                    # Project teacher repr through the teacher's head
                     t_proj = self.teacher_projs[teacher_name](teacher_repr)
 
                     distill_loss += self.representation_distillation_loss(s_proj, t_proj)
-                    collapse_loss += self.collapse_penalty(s_proj, domain=teacher_name)
+
+                    # Per-domain collapse penalty — different weights per domain
+                    # based on empirical specificity scores from previous runs.
+                    domain_alpha = self.config.alpha_collapse_per_domain.get(
+                        teacher_name, 1.0
+                    )
+                    collapse_loss += (
+                        domain_alpha * self.collapse_penalty(s_proj, domain=teacher_name)
+                    )
 
                 distill_loss = distill_loss / len(teacher_reprs)
                 collapse_loss = collapse_loss / len(teacher_reprs)
