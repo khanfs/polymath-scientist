@@ -55,7 +55,6 @@ def main() -> None:
         student_hidden_size=768,
         teacher_hidden_size=768,
         projection_dim=256,
-        alpha_collapse=0.1,
         resume_from_epoch=args.resume_from_epoch,
     )
 

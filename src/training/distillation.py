@@ -932,7 +932,7 @@ class PolymathDistillationTrainer:
 
                 total_loss = (
                     self.config.alpha_distill * distill_loss
-                    + self.config.alpha_collapse * collapse_loss
+                    + collapse_loss   # already weighted per-domain inside the loop
                 )
 
                 # Guard against NaN/Inf losses.

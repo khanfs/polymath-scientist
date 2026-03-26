@@ -62,7 +62,7 @@ Scientific Data Sources
 
 The student model is shaped by two complementary learning signals: data-driven adaptation on multidisciplinary scientific text, and teacher-guided distillation from domain-specialised models.
 
-Distillation uses **six lightweight projection heads** — one student head and one teacher head per domain — mapping each model's representations into a shared 256-dimensional projection space for cosine alignment. Per-domain student heads are necessary: a single shared student head optimised against all three teachers simultaneously collapses to a near-constant output. Per-domain heads allow independent specialisation and prevent cross-domain interference in the projection space.
+Distillation uses **six lightweight projection heads**: one student head and one teacher head per domain, mapping each model's representations into a shared 256-dimensional projection space for cosine alignment. Per-domain student heads are necessary: a single shared student head optimised against all three teachers simultaneously collapses to a near-constant output. Per-domain heads allow independent specialisation and prevent cross-domain interference in the projection space.
 
 ## Dataset
 
@@ -153,11 +153,11 @@ The student model learns by minimizing a combined loss:
 
 A key finding during development is that jointly optimising the causal language modelling objective and cross-architecture representational alignment is fundamentally unstable. In practice, distillation gradients caused LM loss to rise from 3.5 to 7–8, progressively overwriting language modelling capability. This is theoretically ill-posed for encoder-decoder distillation pairs, whose attention mechanisms have incompatible geometric structure.
 
-The fix — and a core architectural contribution of this project — is to **freeze the student backbone entirely** and train only the lightweight per-domain projection heads (~2.4M parameters vs 82M in the full backbone). This produces stable, interpretable domain-specific alignment without degrading the student's generative capability.
+The fix and a core architectural contribution of this project is to **freeze the student backbone entirely** and train only the lightweight per-domain projection heads (~2.4M parameters vs 82M in the full backbone). This produces stable, interpretable domain-specific alignment without degrading the student's generative capability.
 
 ### Collapse Detection
 
-During distillation, projection heads were observed to converge to near-constant outputs (cosine similarity ~0.999 across all inputs) — a failure mode where the shared projection space loses discriminative structure. To address this, an **EMA (exponential moving average) collapse penalty** is applied during training. A running mean of the student projection is tracked across batches, and a penalty term is added to the loss when the current projection is too similar to that mean. This mechanism works with `batch_size=1` and directly targets representation collapse in the shared projection space.
+During distillation, projection heads were observed to converge to near-constant outputs (cosine similarity ~0.999 across all inputs), a failure mode where the shared projection space loses discriminative structure. To address this, an **EMA (exponential moving average) collapse penalty** is applied during training. A running mean of the student projection is tracked across batches, and a penalty term is added to the loss when the current projection is too similar to that mean. This mechanism works with `batch_size=1` and directly targets representation collapse in the shared projection space.
 
 ### Preliminary Results
 
@@ -175,7 +175,7 @@ Results from the frozen backbone + per-domain projection heads condition:
 | Domain specificity (physics)   | —                    | 12.9%              | Below chance  |
 
 
-Perplexity improvements are strong across all three domains. Domain specificity is strong for biology but below chance for chemistry and physics — attributed to representation collapse in the projection space, which the EMA collapse penalty and per-domain heads are designed to address.
+Perplexity improvements are strong across all three domains. Domain specificity is strong for biology but below chance for chemistry and physics - attributed to representation collapse in the projection space, which the EMA collapse penalty and per-domain heads are designed to address.
 
 ### Training the Distilled Model
 
@@ -262,6 +262,8 @@ python scripts/run_end_to_end.py
 ## Project Goal
 
 The long-term aim of this project is to explore the development of AI systems capable of more integrated scientific reasoning across domains.
+
+
 Potential future applications include:
 
 - interdisciplinary scientific discovery
@@ -310,8 +312,7 @@ Current limitations include:
 
 ## Author
 
-Farooq Khan  
-AI researcher working on AI systems for science.
+Farooq Khan
 
 # License
 
