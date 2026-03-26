@@ -122,15 +122,20 @@ class DistillationConfig:
     def __post_init__(self):
         if self.alpha_collapse_per_domain is None:
             self.alpha_collapse_per_domain = {
-                "bio":  0.3,   # biology was already diverse — light penalty
-                "chem": 1.5,   # chemistry needs stronger signal
-                "phys": 1.0,   # physics working well at 1.0
+                # Keep weights close together — large differences cause
+                # winner-takes-all collapse where the lightest-penalised domain
+                # dominates all comparisons (observed: bio=0.3/chem=1.5 → bio=100%).
+                # Small nudges only: chemistry gets slightly stronger signal,
+                # biology slightly lighter, physics unchanged.
+                "bio":  0.8,
+                "chem": 1.2,
+                "phys": 1.0,
             }
         if self.collapse_threshold_per_domain is None:
             self.collapse_threshold_per_domain = {
-                "bio":  0.8,   # less aggressive for biology
-                "chem": 0.6,   # more aggressive for chemistry
-                "phys": 0.7,   # current value working for physics
+                "bio":  0.75,
+                "chem": 0.65,
+                "phys": 0.70,
             }
 
     # Projection head dimensions
