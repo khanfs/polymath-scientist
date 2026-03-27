@@ -440,10 +440,10 @@ class QuantitativeEvaluator:
             },
             "chem": {
                 "model": BertModel.from_pretrained(
-                    "m3rg-iitd/matscibert"
+                    "recobo/chemical-bert-uncased"
                 ).eval().to(self.device),
                 "tokenizer": AutoTokenizer.from_pretrained(
-                    "m3rg-iitd/matscibert", use_fast=False
+                    "recobo/chemical-bert-uncased", use_fast=False
                 ),
             },
             "phys": {

@@ -300,7 +300,7 @@ class PolymathDistillationTrainer:
         -------------------------
         bio  → BioBERT v1.2  (dmis-lab/biobert-base-cased-v1.2)
                               Pre-trained on PubMed and PMC biomedical papers.
-        chem → MatSciBERT    (m3rg-iitd/matscibert)
+        chem → ChemBERT     (recobo/chemical-bert-uncased)
                               Pre-trained on materials science literature.
                               Replaces ChemBERTa, which was trained on SMILES
                               molecular structure notation rather than prose.
@@ -330,10 +330,10 @@ class PolymathDistillationTrainer:
             },
             "chem": {
                 "model": BertModel.from_pretrained(
-                    "m3rg-iitd/matscibert"
+                    "recobo/chemical-bert-uncased"
                 ).eval(),
                 "tokenizer": AutoTokenizer.from_pretrained(
-                    "m3rg-iitd/matscibert",
+                    "recobo/chemical-bert-uncased",
                     use_fast=False,
                 ),
             },
@@ -830,7 +830,7 @@ class PolymathDistillationTrainer:
                 name=run_name,
                 config={
                     "model": "distilgpt2",
-                    "teachers": ["biobert-v1.2", "matscibert", "physbert_cased"],
+                    "teachers": ["biobert-v1.2", "chemical-bert-uncased", "physbert_cased"],
                     "max_length": self.config.max_length,
                     "batch_size": self.config.batch_size,
                     "learning_rate": self.config.learning_rate,
