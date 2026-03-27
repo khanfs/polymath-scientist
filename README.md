@@ -2,7 +2,7 @@
 
 **AI Polymath Scientist** is a research prototype investigating whether language models can acquire **interdisciplinary scientific reasoning** through multi-teacher knowledge distillation.
 
-The project explores a training framework in which domain-specialised teacher models transfer knowledge from **biology**, **materials science / chemistry**, and **physics** into a shared student model. The goal is to study whether this process can support more integrated, cross-domain scientific reasoning.
+The project explores a training framework in which domain-specialised teacher models transfer knowledge from **biology**, **chemistry**, and **physics** into a shared student model. The goal is to study whether this process can support more integrated, cross-domain scientific reasoning.
 
 The system combines multidisciplinary scientific data, domain-adaptive fine-tuning of a generative student model, and multi-teacher distillation into a single cross-domain reasoning prototype.
 
@@ -29,12 +29,14 @@ This repository investigates questions such as:
 
 The system currently consists of three main stages:
 
-1. **Multidisciplinary data preparation**
-  Scientific text is collected and processed from multiple sources to create a cross-domain corpus.
-2. **Student model training**
-  A student language model is adapted to multidisciplinary scientific text.
-3. **Multi-teacher knowledge distillation**
-  Domain-specialised teacher models transfer structured domain knowledge into the student model.
+1. **Multidisciplinary data preparation**  
+   Scientific text is collected and processed from multiple sources to create a cross-domain corpus.
+
+2. **Student model training**  
+   A student language model is adapted to multidisciplinary scientific text.
+
+3. **Multi-teacher knowledge distillation**  
+   Domain-specialised teacher models transfer structured domain knowledge into the student model.
 
 ## Architecture
 
@@ -56,18 +58,17 @@ Scientific Data Sources
    Multi-Teacher Knowledge Distillation
         ^           ^           ^
         |           |           |
-     BioBERT    MatSciBERT   PhysBERT
-    (Biology)  (Mat. Sci.)  (Physics)
+     BioBERT    ChemBERT     PhysBERT
+    (Biology)  (Chemistry)  (Physics)
 ```
 
 The student model is shaped by two complementary learning signals: data-driven adaptation on multidisciplinary scientific text, and teacher-guided distillation from domain-specialised models.
 
-Distillation uses **six lightweight projection heads**: one student head and one teacher head per domain, mapping each model's representations into a shared 256-dimensional projection space for cosine alignment. Per-domain student heads are necessary: a single shared student head optimised against all three teachers simultaneously collapses to a near-constant output. Per-domain heads allow independent specialisation and prevent cross-domain interference in the projection space.
+Distillation uses **six lightweight projection heads** — one student head and one teacher head per domain — mapping each model's representations into a shared 256-dimensional projection space for cosine alignment. Per-domain student heads are necessary: a single shared student head optimised against all three teachers simultaneously collapses to a near-constant output. Per-domain heads allow independent specialisation and prevent cross-domain interference in the projection space.
 
 ## Dataset
 
 The training corpus integrates scientific text from multiple sources:
-
 
 | Dataset         | Purpose                  |
 | --------------- | ------------------------ |
@@ -77,16 +78,15 @@ The training corpus integrates scientific text from multiple sources:
 | eLife summaries | Biological lay summaries |
 | PLoS summaries  | Biomedical lay summaries |
 
-
 ## Data Pipeline
 
 The data pipeline is designed to:
 
-- extract scientific content
-- reduce noise and metadata
-- balance domain coverage
-- generate train / validation / test splits
-- support lightweight sampling modes for rapid experimentation
+* extract scientific content
+* reduce noise and metadata
+* balance domain coverage
+* generate train / validation / test splits
+* support lightweight sampling modes for rapid experimentation
 
 **The pipeline is:**
 
@@ -130,15 +130,15 @@ DistilGPT2 is used as the student model. It provides a lightweight autoregressiv
 
 Three specialised teacher models provide domain expertise during **knowledge distillation** to transfer domain-specific knowledge to the student model.
 
+| Domain    | Teacher Model                              | Pre-training Data                              | Corpus Match |
+| --------- | ------------------------------------------ | ---------------------------------------------- | ------------ |
+| Biology   | BioBERT v1.2                               | PubMed + PMC biomedical papers                 | ✅ Natural language biology prose |
+| Chemistry | ChemBERT (`recobo/chemical-bert-uncased`)  | Wikipedia chemistry articles + industrial docs | ✅ Wikipedia chemistry in training data |
+| Physics   | PhysBERT                                   | 1.2M arXiv physics papers                      | ✅ Natural language physics prose |
 
-| Domain                        | Teacher Model                       | Training Data                                  |
-| ----------------------------- | ----------------------------------- | ---------------------------------------------- |
-| Biology                       | BioBERT v1.2                        | PubMed + PMC — biomedical natural language     |
-| Materials Science / Chemistry | MatSciBERT (`m3rg-iitd/matscibert`) | Materials science literature — chemistry prose |
-| Physics                       | PhysBERT                            | arXiv physics papers — physics-specific        |
+Teacher selection is governed by **teacher-corpus alignment** — not just domain proximity. A key empirical finding during development is that domain proximity alone is insufficient: MatSciBERT (materials science literature) was initially used as the chemistry teacher but failed to provide a useful alignment signal for general chemistry text, because materials science prose (alloys, semiconductors, tensile strength) is a genuinely different register from general chemistry prose (molecular solubility, reactions, periodic properties). Despite being chemistry-adjacent, MatSciBERT's pre-training domain did not overlap with the training corpus.
 
-
-Each teacher was selected for alignment with the prose-based training corpus. BioBERT v1.2 is pre-trained on PubMed and PubMed Central biomedical text. MatSciBERT is trained on materials science literature in natural language, making it a better fit than ChemBERTa (which used SMILES molecular notation) for chemistry concepts expressed as prose. PhysBERT, pre-trained on arXiv physics papers, replaces the domain-agnostic SciBERT and provides physics-specific representations grounded in the same literature that forms part of the training corpus.
+ChemBERT (`recobo/chemical-bert-uncased`) replaces MatSciBERT. It was further pre-trained from SciBERT on Wikipedia chemistry articles and technical chemical documents — directly overlapping with the Wikipedia and SciQ chemistry content in the training corpus. BioBERT and PhysBERT were retained: both are trained on natural language prose in the same domain as the training data, and both produce above-chance domain specificity results.
 
 These teacher models provide structured representations and domain-specific contextual knowledge that are transferred into the shared student model.
 
@@ -146,36 +146,39 @@ These teacher models provide structured representations and domain-specific cont
 
 The student model learns by minimizing a combined loss:
 
-- **Distillation loss**: Aligns student predictions with teacher model outputs via cosine similarity in the shared projection space.
-- **Language modelling loss**: Helps the student maintain coherent text generation.
+* **Distillation loss**: Aligns student predictions with teacher model outputs via cosine similarity in the shared projection space.
+
+* **Language modelling loss**: Helps the student maintain coherent text generation.
 
 ### Frozen Backbone
 
 A key finding during development is that jointly optimising the causal language modelling objective and cross-architecture representational alignment is fundamentally unstable. In practice, distillation gradients caused LM loss to rise from 3.5 to 7–8, progressively overwriting language modelling capability. This is theoretically ill-posed for encoder-decoder distillation pairs, whose attention mechanisms have incompatible geometric structure.
 
-The fix and a core architectural contribution of this project is to **freeze the student backbone entirely** and train only the lightweight per-domain projection heads (~2.4M parameters vs 82M in the full backbone). This produces stable, interpretable domain-specific alignment without degrading the student's generative capability.
+The fix — and a core architectural contribution of this project — is to **freeze the student backbone entirely** and train only the lightweight per-domain projection heads (~2.4M parameters vs 82M in the full backbone). This produces stable, interpretable domain-specific alignment without degrading the student's generative capability.
 
 ### Collapse Detection
 
-During distillation, projection heads were observed to converge to near-constant outputs (cosine similarity ~0.999 across all inputs), a failure mode where the shared projection space loses discriminative structure. To address this, an **EMA (exponential moving average) collapse penalty** is applied during training. A running mean of the student projection is tracked across batches, and a penalty term is added to the loss when the current projection is too similar to that mean. This mechanism works with `batch_size=1` and directly targets representation collapse in the shared projection space.
+During distillation, projection heads were observed to converge to near-constant outputs (cosine similarity ~0.999 across all inputs) — a failure mode where the shared projection space loses discriminative structure. To address this, an **EMA (exponential moving average) collapse penalty** is applied during training. A running mean of the student projection is tracked across batches, and a penalty term is added to the loss when the current projection is too similar to that mean. This mechanism works with `batch_size=1` and directly targets representation collapse in the shared projection space.
+
+### Contrastive Distillation Loss (InfoNCE)
+
+Pure cosine alignment loss produced a **winner-takes-all collapse**: BioBERT dominated all teacher comparisons due to its broad vocabulary compatibility with the training corpus, causing the student to align almost exclusively with the biology teacher regardless of input domain. To address this, the distillation loss was replaced with an **InfoNCE contrastive objective** that explicitly penalises incorrect teacher rankings. Rather than simply minimising distance to all teachers simultaneously, InfoNCE treats the correct domain teacher as a positive example and the other teachers as negatives — forcing the student to discriminate between domains rather than averaging across them.
 
 ### Preliminary Results
 
-Results from the frozen backbone + per-domain projection heads condition:
+Results from the frozen backbone + per-domain projection heads + InfoNCE contrastive loss condition:
 
+| Metric                        | Baseline DistilGPT-2 | Distilled Polymath | Improvement   |
+| ----------------------------- | -------------------- | ------------------ | ------------- |
+| Perplexity (biology)          | 56.9                 | 28.3               | ↓ 28.6        |
+| Perplexity (chemistry)        | 56.7                 | 33.6               | ↓ 23.1        |
+| Perplexity (physics)          | 53.2                 | 28.6               | ↓ 24.6        |
+| Perplexity (overall)          | 55.0                 | 30.1               | ↓ 24.9        |
+| Domain specificity (biology)  | —                    | 69.5%              | vs 33% chance |
+| Domain specificity (chemistry)| —                    | Below chance       | Open problem  |
+| Domain specificity (physics)  | —                    | 48.3%              | vs 33% chance |
 
-| Metric                         | Baseline DistilGPT-2 | Distilled Polymath | Improvement   |
-| ------------------------------ | -------------------- | ------------------ | ------------- |
-| Perplexity (biology)           | 56.9                 | 28.3               | ↓ 28.6        |
-| Perplexity (chemistry)         | 56.7                 | 33.6               | ↓ 23.1        |
-| Perplexity (physics)           | 53.2                 | 28.6               | ↓ 24.6        |
-| Perplexity (overall)           | 55.0                 | 30.1               | ↓ 24.9        |
-| Domain specificity (biology)   | —                    | 69.5%              | vs 33% chance |
-| Domain specificity (chemistry) | —                    | 10.6%              | Below chance  |
-| Domain specificity (physics)   | —                    | 12.9%              | Below chance  |
-
-
-Perplexity improvements are strong across all three domains. Domain specificity is strong for biology but below chance for chemistry and physics - attributed to representation collapse in the projection space, which the EMA collapse penalty and per-domain heads are designed to address.
+Perplexity improvements are strong and consistent across all three domains (~45% overall reduction). Domain specificity is above chance for biology and physics. Chemistry domain specificity remained persistently below chance across all configurations using MatSciBERT, diagnosed as a teacher-corpus mismatch rather than a hyperparameter problem. ChemBERT (`recobo/chemical-bert-uncased`) has been introduced as the new chemistry teacher to address this — results pending.
 
 ### Training the Distilled Model
 
@@ -202,7 +205,7 @@ This script will:
 
 ## Repository Structure
 
-```text
+```text 
 polymath-scientist/
 ├── README.md
 ├── src/
@@ -225,36 +228,35 @@ polymath-scientist/
 Generated artifacts such as `splits/`, `fine_tuned_model/`, `logs/`, caches, and large datasets are excluded from version control.
 
 ## Current Status
-
 This repository is an active research prototype.
 
 ### Implemented
 
-- scientific dataset loading and preprocessing
-- multidisciplinary corpus construction
-- train / validation / test split generation
-- student model training pipeline
-- multi-teacher distillation framework
-- EMA-based collapse detection and penalty for projection heads
-- compatibility fixes for evolving transformer and dataset APIs
+* scientific dataset loading and preprocessing
+* multidisciplinary corpus construction
+* train / validation / test split generation
+* student model training pipeline
+* multi-teacher distillation framework
+* EMA-based collapse detection and penalty for projection heads
+* InfoNCE contrastive distillation loss to prevent winner-takes-all teacher collapse
+* Weights & Biases experiment tracking integrated throughout distillation and evaluation
+* compatibility fixes for evolving transformer and dataset APIs
 
 ### In progress
 
-- evaluation of interdisciplinary reasoning
-- stronger benchmark design
-- improved distillation objectives
-- larger-scale training and ablation studies
+* evaluation of interdisciplinary reasoning
+* stronger benchmark design
+* improved distillation objectives
+* larger-scale training and ablation studies
 
 ## Example Workflow
 
 **Install dependencies**
-
 ```bash
 pip install -r requirements.txt
 ```
 
 **Run the end-to-end pipeline**
-
 ```bash
 python scripts/run_end_to_end.py
 ```
@@ -262,27 +264,25 @@ python scripts/run_end_to_end.py
 ## Project Goal
 
 The long-term aim of this project is to explore the development of AI systems capable of more integrated scientific reasoning across domains.
-
-
 Potential future applications include:
 
-- interdisciplinary scientific discovery
-- hypothesis generation
-- scientific literature synthesis
-- AI-assisted research workflows
-- cross-domain reasoning systems spanning the natural sciences
+* interdisciplinary scientific discovery
+* hypothesis generation
+* scientific literature synthesis
+* AI-assisted research workflows
+* cross-domain reasoning systems spanning the natural sciences
 
 ## Future Directions
 
 Potential improvements include:
 
-- scaling to a capable base model (Qwen2.5-1.5B + QLoRA 4-bit quantisation) to test whether the frozen backbone + per-domain projection head approach transfers beyond DistilGPT-2 scale
-- representation-level distillation
-- teacher-to-student projection layers for improved alignment
-- stronger evaluation of cross-domain scientific reasoning
-- retrieval-augmented scientific knowledge
-- scientific hypothesis generation
-- modular or multi-agent scientific reasoning systems
+* scaling to a capable base model (Qwen2.5-1.5B + QLoRA 4-bit quantisation) to test whether the frozen backbone + per-domain projection head approach transfers beyond DistilGPT-2 scale
+* representation-level distillation
+* teacher-to-student projection layers for improved alignment
+* stronger evaluation of cross-domain scientific reasoning
+* retrieval-augmented scientific knowledge
+* scientific hypothesis generation
+* modular or multi-agent scientific reasoning systems
 
 ## Limitations
 
@@ -290,10 +290,11 @@ This is an early-stage research prototype, not a production system.
 
 Current limitations include:
 
-- early evaluation framework
-- limited benchmark coverage
-- constrained scale relative to frontier foundation models
-- ongoing work on measuring true interdisciplinary reasoning
+* early evaluation framework
+* limited benchmark coverage
+* constrained scale relative to frontier foundation models
+* ongoing work on measuring true interdisciplinary reasoning
+* chemistry domain specificity persistently below chance with MatSciBERT — diagnosed as teacher-corpus mismatch, addressed by switching to ChemBERT
 
 ## Documentation
 
@@ -311,8 +312,8 @@ Current limitations include:
 ```
 
 ## Author
-
 Farooq Khan
+AI researcher working on scientific AI, interdisciplinary reasoning, and next-generation AI systems for science.
 
 # License
 
