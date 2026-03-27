@@ -153,6 +153,12 @@ class DistillationConfig:
     # 0 means start from scratch.
     resume_from_epoch: int = 0
 
+    # Contrastive loss weight and temperature.
+    # alpha_contrastive=0.0 disables contrastive loss (pure alignment only).
+    # temperature: lower = sharper contrastive signal (0.07 is standard SimCLR).
+    alpha_contrastive: float = 1.0
+    contrastive_temperature: float = 0.07
+
     # Experiment tracking
     use_wandb: bool = True
     wandb_project: str = "polymath-scientist"
@@ -542,6 +548,57 @@ class PolymathDistillationTrainer:
         """
         return (1.0 - F.cosine_similarity(student_proj, teacher_proj, dim=-1)).mean()
 
+    @staticmethod
+    def contrastive_distillation_loss(
+        student_projs: Dict[str, torch.Tensor],
+        teacher_projs_projected: Dict[str, torch.Tensor],
+        temperature: float = 0.07,
+    ) -> torch.Tensor:
+        """
+        Contrastive distillation loss (InfoNCE-style).
+
+        For each domain, the correct teacher should be more aligned with
+        the student than any other teacher.  This directly addresses the
+        winner-takes-all problem where one teacher (BioBERT) dominates all
+        comparisons because its representations are broadly compatible with
+        general scientific text.
+
+        For each domain d:
+            loss_d = -log( exp(sim(s_d, t_d) / τ) /
+                          Σ_k exp(sim(s_d, t_k) / τ) )
+
+        where s_d is the student projection for domain d, t_k is each
+        teacher projection, and τ is the temperature.
+
+        Lower temperature = sharper distribution = stronger contrastive signal.
+        """
+        teacher_names = list(student_projs.keys())
+        total_loss = torch.tensor(0.0,
+            device=next(iter(student_projs.values())).device)
+
+        for domain in teacher_names:
+            s = student_projs[domain]   # [1, proj_dim], L2-normalised
+
+            # Compute similarity to all teachers from this domain's student head
+            sims = torch.stack([
+                F.cosine_similarity(s, teacher_projs_projected[t], dim=-1)
+                for t in teacher_names
+            ], dim=1)   # [batch, n_teachers]
+
+            # Scale by temperature
+            logits = sims / temperature
+
+            # Target: the correct teacher index
+            target_idx = teacher_names.index(domain)
+            target = torch.full(
+                (s.shape[0],), target_idx,
+                dtype=torch.long, device=s.device
+            )
+
+            total_loss += F.cross_entropy(logits, target)
+
+        return total_loss / len(teacher_names)
+
     # ------------------------------------------------------------------
     # Optimiser and scheduler
     # ------------------------------------------------------------------
@@ -706,16 +763,25 @@ class PolymathDistillationTrainer:
             student_repr = self.masked_mean_pool(student_hidden, attention_mask)
 
             distill_loss = torch.tensor(0.0, device=self.device)
+            val_student_projs: Dict[str, torch.Tensor] = {}
+            val_teacher_projs: Dict[str, torch.Tensor] = {}
             for teacher_name, teacher_repr in teacher_reprs.items():
                 s_proj = self.student_projs[teacher_name](student_repr)
                 t_proj = self.teacher_projs[teacher_name](teacher_repr)
+                val_student_projs[teacher_name] = s_proj
+                val_teacher_projs[teacher_name] = t_proj
                 distill_loss += self.representation_distillation_loss(s_proj, t_proj)
             distill_loss = distill_loss / len(teacher_reprs)
+            contrastive_loss = self.contrastive_distillation_loss(
+                student_projs=val_student_projs,
+                teacher_projs_projected=val_teacher_projs,
+                temperature=self.config.contrastive_temperature,
+            )
 
-            lm_loss = student_outputs.loss
+            lm_loss = torch.tensor(0.0, device=self.device)
             total_loss = (
                 self.config.alpha_distill * distill_loss
-                + self.config.alpha_lm * lm_loss
+                + self.config.alpha_contrastive * contrastive_loss
             )
 
             total_distill += distill_loss.item()
@@ -914,14 +980,19 @@ class PolymathDistillationTrainer:
                 distill_loss = torch.tensor(0.0, device=self.device)
                 collapse_loss = torch.tensor(0.0, device=self.device)
 
+                # Compute all per-domain projections
+                all_student_projs: Dict[str, torch.Tensor] = {}
+                all_teacher_projs: Dict[str, torch.Tensor] = {}
+
                 for teacher_name, teacher_repr in teacher_reprs.items():
                     s_proj = self.student_projs[teacher_name](student_repr)
                     t_proj = self.teacher_projs[teacher_name](teacher_repr)
 
+                    all_student_projs[teacher_name] = s_proj
+                    all_teacher_projs[teacher_name] = t_proj
+
                     distill_loss += self.representation_distillation_loss(s_proj, t_proj)
 
-                    # Per-domain collapse penalty — different weights per domain
-                    # based on empirical specificity scores from previous runs.
                     domain_alpha = self.config.alpha_collapse_per_domain.get(
                         teacher_name, 1.0
                     )
@@ -932,12 +1003,23 @@ class PolymathDistillationTrainer:
                 distill_loss = distill_loss / len(teacher_reprs)
                 collapse_loss = collapse_loss / len(teacher_reprs)
 
+                # Contrastive loss: correct teacher should rank higher than
+                # incorrect teachers for each domain's student projection head.
+                # This directly penalises winner-takes-all collapse where one
+                # teacher dominates all comparisons.
+                contrastive_loss = self.contrastive_distillation_loss(
+                    student_projs=all_student_projs,
+                    teacher_projs_projected=all_teacher_projs,
+                    temperature=self.config.contrastive_temperature,
+                )
+
                 # LM loss is not used — student backbone is frozen.
                 lm_loss = torch.tensor(0.0, device=self.device)
 
                 total_loss = (
                     self.config.alpha_distill * distill_loss
-                    + collapse_loss   # already weighted per-domain inside the loop
+                    + collapse_loss
+                    + self.config.alpha_contrastive * contrastive_loss
                 )
 
                 # Guard against NaN/Inf losses.
@@ -1016,10 +1098,10 @@ class PolymathDistillationTrainer:
 
                 progress_bar.set_postfix(
                     {
-                        "d_loss": f"{distill_loss.item():.4f}",
-                        "lm": f"{lm_loss.item():.4f}",
+                        "d": f"{distill_loss.item():.4f}",
+                        "con": f"{contrastive_loss.item():.4f}",
                         "col": f"{collapse_loss.item():.4f}",
-                        "total": f"{total_loss.item():.4f}",
+                        "tot": f"{total_loss.item():.4f}",
                         "lr": f"{scheduler.get_last_lr()[0]:.2e}",
                     }
                 )
@@ -1027,6 +1109,7 @@ class PolymathDistillationTrainer:
                 if self._wandb_run is not None and num_batches % 50 == 0:
                     self._wandb_run.log({
                         "train/distill_loss": distill_loss.item(),
+                        "train/contrastive_loss": contrastive_loss.item(),
                         "train/collapse_loss": collapse_loss.item(),
                         "train/total_loss": total_loss.item(),
                         "train/lr": scheduler.get_last_lr()[0],
