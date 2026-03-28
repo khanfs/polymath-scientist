@@ -365,7 +365,12 @@ class PolymathDistillationTrainer:
     # ------------------------------------------------------------------
 
     def load_and_tokenize_split(self, split_name: str, tokenizer) -> Dataset:
-        """Load and tokenize a dataset split."""
+        """Load and tokenize a dataset split, including integer domain labels.
+
+        Domain labels are encoded as integers so they survive PyTorch
+        DataLoader collation (string columns are dropped by the default
+        collate function).  Mapping: bio=0, chem=1, phys=2, other=-1.
+        """
         split_path = self.splits_path / f"{split_name}_split.json"
         self.logger.info("Loading split from %s", split_path)
 
@@ -374,15 +379,20 @@ class PolymathDistillationTrainer:
 
         if isinstance(data, dict) and "texts" in data:
             texts = data["texts"]
+            topics = data.get("topics", ["other"] * len(texts))
         elif isinstance(data, list):
             texts = [item["text"] for item in data]
+            topics = ["other"] * len(texts)
         else:
             raise ValueError(
                 f"Unexpected split format in {split_path}. "
                 "Expected dict with 'texts' key or list of items with 'text'."
             )
 
-        dataset = Dataset.from_dict({"text": texts})
+        topic_to_idx = {"biology": 0, "chemistry": 1, "physics": 2}
+        label_ids = [topic_to_idx.get(t, -1) for t in topics]
+
+        dataset = Dataset.from_dict({"text": texts, "teacher_label_id": label_ids})
 
         tokenized_data = dataset.map(
             lambda examples: tokenizer(
@@ -395,13 +405,9 @@ class PolymathDistillationTrainer:
             remove_columns=["text"],
         )
 
-        # Include teacher_label as a non-tensor column so it reaches
-        # the training loop for supervised contrastive loss.
-        # output_all_columns=True preserves string columns alongside tensors.
         tokenized_data.set_format(
             type="torch",
-            columns=["input_ids", "attention_mask"],
-            output_all_columns=True,
+            columns=["input_ids", "attention_mask", "teacher_label_id"],
         )
 
         return tokenized_data
@@ -932,20 +938,14 @@ class PolymathDistillationTrainer:
                 input_ids = batch["input_ids"].to(self.device)
                 attention_mask = batch["attention_mask"].to(self.device)
 
-                # Extract domain label for supervised contrastive loss.
-                # teacher_label is a list of strings (e.g. ["bio"]) from
-                # the dataset; we take the first element for batch_size=1.
-                batch_teacher_label = batch.get("teacher_label", None)
-                if batch_teacher_label is not None:
-                    # Handle both tensor and list formats
-                    if hasattr(batch_teacher_label, 'tolist'):
-                        label_val = batch_teacher_label[0]
-                        correct_teacher = label_val if isinstance(label_val, str) else None
-                    else:
-                        correct_teacher = batch_teacher_label[0] if batch_teacher_label else None
-                    # Only use known teacher labels
-                    if correct_teacher not in self.TEACHER_NAMES:
-                        correct_teacher = None
+                # Decode integer domain label to teacher name.
+                # Mapping: 0=bio, 1=chem, 2=phys, -1=unlabelled (skip).
+                _idx_to_teacher = {0: "bio", 1: "chem", 2: "phys"}
+                label_id_tensor = batch.get("teacher_label_id", None)
+                if label_id_tensor is not None:
+                    correct_teacher = _idx_to_teacher.get(
+                        int(label_id_tensor[0].item()), None
+                    )
                 else:
                     correct_teacher = None
 
