@@ -941,8 +941,24 @@ class PolymathDistillationTrainer:
                 input_ids = batch["input_ids"].to(self.device)
                 attention_mask = batch["attention_mask"].to(self.device)
 
-                # Skip batches that are entirely padding — these produce
-                # NaN LM loss because all labels get masked to -100.
+                # Extract domain label for supervised contrastive loss.
+                # teacher_label is a list of strings (e.g. ["bio"]) from
+                # the dataset; we take the first element for batch_size=1.
+                batch_teacher_label = batch.get("teacher_label", None)
+                if batch_teacher_label is not None:
+                    # Handle both tensor and list formats
+                    if hasattr(batch_teacher_label, 'tolist'):
+                        label_val = batch_teacher_label[0]
+                        correct_teacher = label_val if isinstance(label_val, str) else None
+                    else:
+                        correct_teacher = batch_teacher_label[0] if batch_teacher_label else None
+                    # Only use known teacher labels
+                    if correct_teacher not in self.TEACHER_NAMES:
+                        correct_teacher = None
+                else:
+                    correct_teacher = None
+
+                # Skip batches that are entirely padding.
                 if attention_mask.sum() < 2:
                     continue
 
@@ -1010,6 +1026,7 @@ class PolymathDistillationTrainer:
                 contrastive_loss = self.contrastive_distillation_loss(
                     student_projs=all_student_projs,
                     teacher_projs_projected=all_teacher_projs,
+                    correct_teacher=correct_teacher,
                     temperature=self.config.contrastive_temperature,
                 )
 
