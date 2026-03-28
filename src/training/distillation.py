@@ -395,9 +395,13 @@ class PolymathDistillationTrainer:
             remove_columns=["text"],
         )
 
+        # Include teacher_label as a non-tensor column so it reaches
+        # the training loop for supervised contrastive loss.
+        # output_all_columns=True preserves string columns alongside tensors.
         tokenized_data.set_format(
             type="torch",
             columns=["input_ids", "attention_mask"],
+            output_all_columns=True,
         )
 
         return tokenized_data
