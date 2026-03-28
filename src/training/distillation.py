@@ -552,52 +552,39 @@ class PolymathDistillationTrainer:
     def contrastive_distillation_loss(
         student_projs: Dict[str, torch.Tensor],
         teacher_projs_projected: Dict[str, torch.Tensor],
+        correct_teacher: Optional[str] = None,
         temperature: float = 0.07,
     ) -> torch.Tensor:
         """
-        Contrastive distillation loss (InfoNCE-style).
+        Supervised contrastive distillation loss (InfoNCE-style).
 
-        For each domain, the correct teacher should be more aligned with
-        the student than any other teacher.  This directly addresses the
-        winner-takes-all problem where one teacher (BioBERT) dominates all
-        comparisons because its representations are broadly compatible with
-        general scientific text.
+        When correct_teacher is provided (domain label known), applies the
+        contrastive objective only for that domain's student head — pushing
+        it to prefer its matched teacher over the others.
 
-        For each domain d:
-            loss_d = -log( exp(sim(s_d, t_d) / τ) /
-                          Σ_k exp(sim(s_d, t_k) / τ) )
-
-        where s_d is the student projection for domain d, t_k is each
-        teacher projection, and τ is the temperature.
-
-        Lower temperature = sharper distribution = stronger contrastive signal.
+        Without domain labels (correct_teacher=None), returns 0 — the
+        unsupervised formulation caused BioBERT dominance because it applied
+        the loss for all domains on all batches regardless of content.
         """
         teacher_names = list(student_projs.keys())
-        total_loss = torch.tensor(0.0,
-            device=next(iter(student_projs.values())).device)
+        device = next(iter(student_projs.values())).device
 
-        for domain in teacher_names:
-            s = student_projs[domain]   # [1, proj_dim], L2-normalised
-
-            # Compute similarity to all teachers from this domain's student head
+        if correct_teacher is not None and correct_teacher in teacher_names:
+            # Supervised: only apply contrastive loss for the correct domain
+            s = student_projs[correct_teacher]
             sims = torch.stack([
                 F.cosine_similarity(s, teacher_projs_projected[t], dim=-1)
                 for t in teacher_names
-            ], dim=1)   # [batch, n_teachers]
-
-            # Scale by temperature
+            ], dim=1)
             logits = sims / temperature
-
-            # Target: the correct teacher index
-            target_idx = teacher_names.index(domain)
+            target_idx = teacher_names.index(correct_teacher)
             target = torch.full(
-                (s.shape[0],), target_idx,
-                dtype=torch.long, device=s.device
+                (s.shape[0],), target_idx, dtype=torch.long, device=device
             )
-
-            total_loss += F.cross_entropy(logits, target)
-
-        return total_loss / len(teacher_names)
+            return F.cross_entropy(logits, target)
+        else:
+            # Skip contrastive loss for unlabelled text.
+            return torch.tensor(0.0, device=device)
 
     # ------------------------------------------------------------------
     # Optimiser and scheduler
