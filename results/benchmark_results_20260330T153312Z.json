@@ -1,0 +1,68 @@
+{
+  "config": {
+    "model_path": "/Users/farooqkhan/My Mac/GitHub/LLMs/polymath-scientist/fine_tuned_model",
+    "baseline_model": "distilgpt2",
+    "output_dir": "/Users/farooqkhan/My Mac/GitHub/LLMs/polymath-scientist/logs/benchmark",
+    "max_samples": 200,
+    "max_length": 256,
+    "device": "mps",
+    "benchmarks": [
+      "sciq",
+      "mmlu_bio",
+      "mmlu_chem",
+      "mmlu_phys"
+    ],
+    "log_wandb": true,
+    "wandb_project": "polymath-scientist"
+  },
+  "benchmarks": {
+    "sciq": {
+      "distilled": {
+        "accuracy": 0.86,
+        "correct": 172,
+        "total": 200
+      },
+      "baseline": {
+        "accuracy": 0.85,
+        "correct": 170,
+        "total": 200
+      }
+    },
+    "mmlu_bio": {
+      "distilled": {
+        "accuracy": 0.3,
+        "correct": 60,
+        "total": 200
+      },
+      "baseline": {
+        "accuracy": 0.315,
+        "correct": 63,
+        "total": 200
+      }
+    },
+    "mmlu_chem": {
+      "distilled": {
+        "accuracy": 0.215,
+        "correct": 43,
+        "total": 200
+      },
+      "baseline": {
+        "accuracy": 0.235,
+        "correct": 47,
+        "total": 200
+      }
+    },
+    "mmlu_phys": {
+      "distilled": {
+        "accuracy": 0.23178807947019867,
+        "correct": 35,
+        "total": 151
+      },
+      "baseline": {
+        "accuracy": 0.2185430463576159,
+        "correct": 33,
+        "total": 151
+      }
+    }
+  }
+}
